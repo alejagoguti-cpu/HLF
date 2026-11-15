@@ -3,9 +3,9 @@ import 'cesium/Build/Cesium/Widgets/widgets.css';
 import * as Cesium from 'cesium';
 import { ASSETS, PLACES, VIEWS } from './config';
 import { ArchCamera } from './arch-camera';
-import { loadSite, enuToWorld, type Site, type Building } from './site';
+import { loadSite, enuToWorld, siteMatrix, type Site, type Building } from './site';
 import { createTrafico, type Trafico } from './vehiculos';
-import { gradeStage } from './shaders';
+import { gradeStage, skyStage } from './shaders';
 
 /* ============================================================
    UNICENTRO · Hotel La Fontana · visor arquitectónico
@@ -100,7 +100,14 @@ bloom.uniforms.delta = 1.0;
 bloom.uniforms.sigma = 2.6;
 bloom.uniforms.stepSize = 1.5;
 
-// etalonaje fílmico estilo Unreal
+// cielo andino con nubes animadas + etalonaje fílmico estilo Unreal
+const smat = siteMatrix();
+const axis = (col: number) => {
+  const c = Cesium.Matrix4.getColumn(smat, col, new Cesium.Cartesian4());
+  return new Cesium.Cartesian3(c.x, c.y, c.z);
+};
+const sky = skyStage(axis(0), axis(1), axis(2));
+scene.postProcessStages.add(sky);
 const grade = gradeStage();
 scene.postProcessStages.add(grade);
 
@@ -172,6 +179,8 @@ function applyPreset(p: LightingPreset): void {
     currentTarde = fromT + (p.tarde - fromT) * e;
     site?.setNight(currentNight);
     site?.setTarde(currentTarde);
+    sky.uniforms.uNight = currentNight;
+    sky.uniforms.uTarde = currentTarde;
     grade.uniforms.uNight = currentNight;
     grade.uniforms.uTarde = currentTarde;
     if (t < 1) requestAnimationFrame(step);
@@ -403,7 +412,9 @@ function tick(): void {
     else site.setHotelFloors(piso + e);
   }
   trafico?.update(dt);
-  site?.setTime(now * 0.001);
+  const tSec = now * 0.001;
+  site?.setTime(tSec);
+  sky.uniforms.uTime = tSec;
 
   if (autoOrbit && !cam.isWalking) cam.flyTo({ heading: cam.state.heading + 0.16 * dt }, 0);
   cam.update(dt);

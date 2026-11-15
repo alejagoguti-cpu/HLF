@@ -26,7 +26,7 @@ const HAZE_GLSL = `
     return mix(mix(day, sunset, tarde), nite, night);
   }
   float hlfHaze(float d) {
-    return (1.0 - exp(-max(0.0, d - 380.0) * 0.00022)) * 0.48;
+    return (1.0 - exp(-max(0.0, d - 800.0) * 0.00012)) * 0.14;
   }
   // Luz indirecta hemisférica (estilo Lumen SkyLight): cielo frío arriba, rebote cálido abajo
   vec3 hlfSkyFill(vec3 nEC, vec3 upEC, float night, float tarde) {

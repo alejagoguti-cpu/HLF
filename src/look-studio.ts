@@ -150,22 +150,13 @@ export function createLookStudio(onChange: (id: PresetId, p: LookParams) => void
   };
   let active: PresetId = 'dia';
 
-  // Botón en el dock
-  const dock = document.querySelector('.dock');
+  // Botón visible arriba a la derecha (junto al reloj)
   const toggleBtn = document.createElement('button');
   toggleBtn.id = 'btnLookStudio';
-  toggleBtn.textContent = 'Ajustar luz';
+  toggleBtn.className = 'look-toggle';
+  toggleBtn.textContent = '⚙ Ajustar luz';
   toggleBtn.title = 'Abrir editor de iluminación y color (L)';
-  if (dock) {
-    const sep = document.createElement('span');
-    sep.className = 'sep';
-    sep.setAttribute('aria-hidden', 'true');
-    dock.appendChild(sep);
-    const grp = document.createElement('div');
-    grp.className = 'group';
-    grp.appendChild(toggleBtn);
-    dock.appendChild(grp);
-  }
+  document.body.appendChild(toggleBtn);
 
   // Panel flotante
   const panel = document.createElement('aside');

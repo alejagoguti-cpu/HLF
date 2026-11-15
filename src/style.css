@@ -290,6 +290,26 @@ html, body {
 
 /* ---------------- editor de iluminación y color ---------------- */
 
+.look-toggle {
+  position: fixed;
+  top: 20px;
+  right: 98px;
+  padding: 8px 14px;
+  font: 500 11.5px var(--font);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  cursor: pointer;
+  z-index: 21;
+  transition: background 0.15s, border-color 0.15s;
+}
+.look-toggle:hover { background: rgba(255, 255, 255, 0.12); }
+.look-toggle.on { background: rgba(157, 196, 234, 0.24); border-color: rgba(157, 196, 234, 0.55); }
+
 .look-panel {
   position: fixed;
   top: 66px;

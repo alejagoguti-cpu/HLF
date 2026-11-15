@@ -197,6 +197,47 @@ export async function createTrafico(
     return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
   })();
 
+  /**
+   * Sentido vial obligatorio según la geometría real de las vías (calzadas
+   * separadas y sentidos únicos alrededor de Hotel La Fontana / Unicentro).
+   * Devuelve un sesgo positivo si `th` coincide con el sentido permitido, o -1e6 si va en contravía.
+   */
+  const sentidoVial = (e: number, n: number, th: number): number => {
+    const cx = Math.cos(th);
+    const cy = Math.sin(th);
+
+    // 1. Avenida N-S al oriente del hotel (e en [-168, -118]): izquierda ↓ (-N), derecha ↑ (+N)
+    if (e >= -168 && e <= -118 && Math.abs(cy) > 0.35) {
+      const eMed = -143;
+      if (e < eMed) return cy < -0.2 ? 12 : -1e6;
+      return cy > 0.2 ? 12 : -1e6;
+    }
+
+    // 2. Avenida E-O (Calle 127) al sur del hotel: calzada norte → (+E), calzada sur ← (-E)
+    const nMed = 263 - (e + 420) * (51 / 380);
+    if (Math.abs(n - nMed) < 26 && Math.abs(cx) > 0.35) {
+      if (n > nMed) return cx > 0.2 ? 12 : -1e6;
+      return cx < -0.2 ? 12 : -1e6;
+    }
+
+    // 3. Calle secundaria vertical al sur del hotel (e en [-255, -210], n < 222): ↓ (-N)
+    if (e >= -255 && e <= -210 && n < 222 && Math.abs(cy) > 0.35) {
+      return cy < -0.2 ? 10 : -1e6;
+    }
+
+    // 4. Calle horizontal inferior (n < 175, e < -215): → (+E)
+    if (n < 175 && e < -215 && Math.abs(cx) > 0.35) {
+      return cx > 0.2 ? 10 : -1e6;
+    }
+
+    // 5. Calle vertical izquierda (e < -385, n < 265): ↓ (-N)
+    if (e < -385 && n < 265 && Math.abs(cy) > 0.35) {
+      return cy < -0.2 ? 10 : -1e6;
+    }
+
+    return 0;
+  };
+
   const carros: Carro[] = [];
   const demasiadoCerca = (e: number, n: number, excluir?: Carro) =>
     carros.some((o) => o !== excluir && Math.hypot(o.e - e, o.n - n) < 8.5);
@@ -212,10 +253,14 @@ export async function createTrafico(
       let bestS = -1e9;
       for (let a = 0; a < 16; a++) {
         const th = (a / 16) * Math.PI * 2;
-        const ahead = d(ce + Math.cos(th) * 10, cn + Math.sin(th) * 10);
+        const ax = ce + Math.cos(th) * 10;
+        const ay = cn + Math.sin(th) * 10;
+        const ahead = d(ax, ay);
+        const dirScore = sentidoVial(ax, ay, th);
+        if (dirScore < -1e4) continue;
         const right = d(ce + Math.sin(th) * 2.5, cn - Math.cos(th) * 2.5);
         const left = d(ce - Math.sin(th) * 2.5, cn + Math.cos(th) * 2.5);
-        const s = -Math.abs(ahead - CARRIL) + (left > right ? 1.5 : 0);
+        const s = -Math.abs(ahead - CARRIL) + (left > right ? 1.5 : 0) + dirScore;
         if (ahead > 1.5 && s > bestS) { bestS = s; best = th; }
       }
       if (bestS > -1e8) {
@@ -370,22 +415,17 @@ export async function createTrafico(
           if (ahead < 1.1) continue;
           const mid = d(c.e + Math.cos(th) * 4.5, c.n + Math.sin(th) * 4.5);
           if (mid < 0.9) continue;
+          const dirScore = sentidoVial(ax, ay, th);
+          if (dirScore < -1e4) continue;
           const right = d(ax + Math.sin(th) * 2.5, ay - Math.cos(th) * 2.5);
           const left = d(ax - Math.sin(th) * 2.5, ay + Math.cos(th) * 2.5);
-          const s = -Math.abs(Math.min(ahead, 6) - CARRIL) - Math.abs(dth) * 1.6 + (left >= right ? 0.6 : 0);
+          const s = -Math.abs(Math.min(ahead, 6) - CARRIL) - Math.abs(dth) * 1.6 + (left >= right ? 0.6 : 0) + dirScore;
           if (s > bestS) { bestS = s; best = dth; }
         }
 
-        if (Math.hypot(c.e + 180, c.n - 250) > 580) {
+        if (bestS < -1e8 || Math.hypot(c.e + 180, c.n - 250) > 580) {
           spawn(c);
           c.u = alt(c.e, c.n);
-          place(c);
-          continue;
-        }
-        if (bestS < -1e8) {
-          // Callejón sin salida: girar en U suavemente sin desaparecer
-          c.th += Math.PI;
-          c.vActual *= 0.35;
           place(c);
           continue;
         }

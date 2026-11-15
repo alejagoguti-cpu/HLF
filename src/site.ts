@@ -14,25 +14,38 @@ export function siteModelMatrix(height: number): Cesium.Matrix4 {
 
 /**
  * Ventanas encendidas al caer la noche.
- * Solo actúa sobre paramentos verticales y dibuja una retícula de pisos con
- * encendido aleatorio estable, así no parece una textura repetida.
+ *
+ * El patrón se calcula por fragmento sobre la posición en coordenadas de
+ * modelo (metros, Y arriba): retícula de 3.1 m por piso de 3.6 m, con
+ * encendido pseudoaleatorio estable por celda, así no se repite la textura.
+ * El paramento vertical llega como varying desde el vértice porque Cesium no
+ * expone la normal de modelo en el fragment shader.
  */
 function facadeNightShader(): Cesium.CustomShader {
   return new Cesium.CustomShader({
     uniforms: {
       uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
     },
-    fragmentShaderText: /* glsl */ `
+    varyings: {
+      vModelPos: Cesium.VaryingType.VEC3,
+      vFacade: Cesium.VaryingType.FLOAT,
+    },
+    vertexShaderText: `
+      void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput) {
+        vModelPos = vsInput.attributes.positionMC;
+        vFacade = 1.0 - smoothstep(0.42, 0.78, abs(normalize(vsInput.attributes.normalMC).y));
+      }
+    `,
+    fragmentShaderText: `
       void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
-        vec3 nrm = normalize(fsInput.attributes.normalMC);
-        float vertical = 1.0 - smoothstep(0.40, 0.75, abs(nrm.y));
-        vec3 p = fsInput.attributes.positionMC;
+        vec3 p = vModelPos;
 
         float w = 3.1;
         float fh = 3.6;
         float wx = fract(p.x / w);
         float wz = fract(p.z / w);
         float wy = fract(p.y / fh);
+
         float glassX = smoothstep(0.18, 0.30, min(wx, 1.0 - wx));
         float glassZ = smoothstep(0.18, 0.30, min(wz, 1.0 - wz));
         float glass = max(glassX, glassZ) * smoothstep(0.24, 0.36, min(wy, 1.0 - wy));
@@ -40,11 +53,10 @@ function facadeNightShader(): Cesium.CustomShader {
         vec2 cell = floor(vec2((p.x + p.z) / w, p.y / fh));
         float seed = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
         float on = step(0.34, seed);
-        float warm = fract(seed * 7.13);
-        vec3 tint = mix(vec3(1.0, 0.70, 0.38), vec3(1.0, 0.94, 0.80), warm);
+        vec3 tint = mix(vec3(1.0, 0.70, 0.38), vec3(1.0, 0.94, 0.80), fract(seed * 7.13));
 
         float base = clamp(dot(material.diffuse.rgb, vec3(0.3333)), 0.0, 1.0);
-        material.emissive += tint * on * glass * vertical * (0.55 + 0.45 * base) * uNight;
+        material.emissive += tint * on * glass * vFacade * (0.55 + 0.45 * base) * uNight;
         material.diffuse *= mix(1.0, 0.30, uNight);
       }
     `,
@@ -58,13 +70,20 @@ function cityNightShader(): Cesium.CustomShader {
       uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
     },
     lightingModel: Cesium.LightingModel.UNLIT,
-    fragmentShaderText: /* glsl */ `
+    varyings: {
+      vCityPos: Cesium.VaryingType.VEC3,
+    },
+    vertexShaderText: `
+      void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput) {
+        vCityPos = vsInput.attributes.positionMC;
+      }
+    `,
+    fragmentShaderText: `
       void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
-        vec3 p = fsInput.attributes.positionMC;
-        float grain = fract(sin(dot(floor(p.xz * 0.35), vec2(12.9898, 78.233))) * 43758.5453);
+        float grain = fract(sin(dot(floor(vCityPos.xz * 0.35), vec2(12.9898, 78.233))) * 43758.5453);
         vec3 c = material.diffuse.rgb;
-        vec3 night = c * vec3(0.16, 0.19, 0.26);
-        night += vec3(1.0, 0.72, 0.40) * step(0.965, grain) * 0.35;
+        vec3 night = c * vec3(0.15, 0.18, 0.25);
+        night += vec3(1.0, 0.72, 0.40) * step(0.968, grain) * 0.30;
         material.diffuse = mix(c, night, uNight);
       }
     `,
@@ -90,7 +109,7 @@ export async function loadSite(
     const [sampled] = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [carto]);
     if (sampled && Number.isFinite(sampled.height)) groundHeight = sampled.height;
   } catch {
-    /* sin terreno: se usa la altura de referencia del proyecto */
+    /* sin terreno: se usa la altitud de referencia del proyecto */
   }
 
   onProgress?.('Contexto urbano', 0.18);
@@ -107,9 +126,9 @@ export async function loadSite(
     cullWithChildrenBounds: true,
   });
   tileset.customShader = cityShader;
-  viewer.scene.primitives.add(tileset);
+  scene.primitives.add(tileset);
 
-  onProgress?.('Arquitectura del proyecto', 0.6);
+  onProgress?.('Arquitectura del proyecto', 0.62);
 
   /* ---------------- arquitectura propia ---------------- */
   const facadeShader = facadeNightShader();
@@ -122,7 +141,7 @@ export async function loadSite(
   model.customShader = facadeShader;
   scene.primitives.add(model);
 
-  onProgress?.('Vegetación y entorno', 0.9);
+  onProgress?.('Vegetación y entorno', 0.92);
 
   const setNight = (v: number) => {
     cityShader.setUniform('uNight', v);

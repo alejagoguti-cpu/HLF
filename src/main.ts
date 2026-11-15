@@ -80,6 +80,7 @@ viewer.clock.currentTime = Cesium.JulianDate.fromIso8601('2026-06-21T09:40:00-05
 const cam = new ArchCamera(viewer);
 const homePivot = Cesium.Cartesian3.fromDegrees(SITE.longitude, SITE.latitude, SITE.height + 12);
 cam.setPivot(homePivot, false);
+cam.flyTo({ pivot: homePivot, heading: SITE.views.general.heading, pitch: SITE.views.general.pitch, range: SITE.views.general.range * 2.2 }, 0.01);
 
 /* ------------------------------------------------------------ luz / hora */
 

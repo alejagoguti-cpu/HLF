@@ -84,9 +84,28 @@ export async function createTrafico(
   };
 
   const alt = (e: number, n: number): number => {
-    const ix = Math.max(0, Math.min(w - 1, Math.floor((e - x0) / cell)));
-    const iy = Math.max(0, Math.min(h - 1, Math.floor((n - y0) / cell)));
-    return cota[iy * w + ix] * 0.1 - 2;
+    const cx = Math.max(0, Math.min(w - 1, Math.floor((e - x0) / cell)));
+    const cy = Math.max(0, Math.min(h - 1, Math.floor((n - y0) / cell)));
+    const ci = cy * w + cx;
+    if (dist[ci] > 0) return cota[ci] * 0.1 - 2;
+
+    // Si la celda está fuera de la calzada (p. ej. andén o borde), promediar las celdas de vía cercanas
+    let sumW = 0;
+    let sumH = 0;
+    for (let dy = -2; dy <= 2; dy++) {
+      const yy = cy + dy;
+      if (yy < 0 || yy >= h) continue;
+      for (let dx = -2; dx <= 2; dx++) {
+        const xx = cx + dx;
+        if (xx < 0 || xx >= w) continue;
+        const idx = yy * w + xx;
+        if (dist[idx] === 0) continue;
+        const wgt = 1 / (dx * dx + dy * dy + 0.5);
+        sumW += wgt;
+        sumH += (cota[idx] * 0.1 - 2) * wgt;
+      }
+    }
+    return sumW > 0 ? sumH / sumW : 1.0;
   };
 
   // Celdas de calzada y celdas de andén (adyacentes a la vía)
@@ -240,7 +259,7 @@ export async function createTrafico(
   const scratchR = new Cesium.Matrix3();
   const scratchL = new Cesium.Matrix4();
 
-  const place = (obj: { e: number; n: number; u: number; th: number; model: Cesium.Model | null }, zOff = 0.03): void => {
+  const place = (obj: { e: number; n: number; u: number; th: number; model: Cesium.Model | null }, zOff = 0.08): void => {
     if (!obj.model) return;
     Cesium.Cartesian3.fromElements(obj.e, obj.n, obj.u + zOff, scratchT);
     Cesium.Matrix3.fromRotationZ(obj.th, scratchR);
@@ -357,9 +376,16 @@ export async function createTrafico(
           if (s > bestS) { bestS = s; best = dth; }
         }
 
-        if (bestS < -1e8 || Math.hypot(c.e + 180, c.n - 250) > 600) {
+        if (Math.hypot(c.e + 180, c.n - 250) > 580) {
           spawn(c);
           c.u = alt(c.e, c.n);
+          place(c);
+          continue;
+        }
+        if (bestS < -1e8) {
+          // Callejón sin salida: girar en U suavemente sin desaparecer
+          c.th += Math.PI;
+          c.vActual *= 0.35;
           place(c);
           continue;
         }
@@ -407,9 +433,20 @@ export async function createTrafico(
 
         if (c.vActual > 0.05) {
           c.th += Math.max(-1.4 * stepDt, Math.min(1.4 * stepDt, best));
-          c.e += Math.cos(c.th) * c.vActual * stepDt;
-          c.n += Math.sin(c.th) * c.vActual * stepDt;
-          c.u += (alt(c.e, c.n) - c.u) * Math.min(1, stepDt * 6);
+          const nx = c.e + Math.cos(c.th) * c.vActual * stepDt;
+          const ny = c.n + Math.sin(c.th) * c.vActual * stepDt;
+          if (d(nx, ny) >= 0.7) {
+            c.e = nx;
+            c.n = ny;
+          } else {
+            c.th += 0.6;
+          }
+          const hTarget = Math.max(
+            alt(c.e, c.n),
+            alt(c.e + Math.cos(c.th) * 1.4, c.n + Math.sin(c.th) * 1.4),
+            alt(c.e - Math.cos(c.th) * 1.4, c.n - Math.sin(c.th) * 1.4),
+          );
+          c.u += (hTarget - c.u) * Math.min(1, stepDt * 8);
         }
         place(c);
       }

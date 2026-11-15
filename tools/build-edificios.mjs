@@ -39,6 +39,17 @@ const clean = (r) => {
 };
 const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
 
+// triángulos (en planta, coords del modelo) de la cubierta de teja del hotel
+const TEJA = JSON.parse(readFileSync(K2 + 'cubiertas_hotel.json', 'utf8')).Teja.V;
+const bajoTeja = (x, y) => {
+  for (let i = 0; i < TEJA.length; i += 9) {
+    const ax = TEJA[i] / 100, ay = -TEJA[i + 1] / 100, bx = TEJA[i + 3] / 100, by = -TEJA[i + 4] / 100, cx = TEJA[i + 6] / 100, cy = -TEJA[i + 7] / 100;
+    if (Math.abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) < 0.05) continue; // triángulo degenerado
+    const d1 = (x - bx) * (ay - by) - (ax - bx) * (y - by), d2 = (x - cx) * (by - cy) - (bx - cx) * (y - cy), d3 = (x - ax) * (cy - ay) - (cx - ax) * (y - ay);
+    if (!((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0))) return true;
+  }
+  return false;
+};
 const secs = new Map();
 const index = [];
 let id = 0;
@@ -54,7 +65,9 @@ for (const e of E) {
   let cx = 0, cy = 0; for (const p of e.rings[0]) { cx += p[0]; cy += p[1]; } cx /= e.rings[0].length; cy /= e.rings[0].length;
   // en la zona real manda la captura 3D del edificio verdadero: ahí no se generan volúmenes
   { const [zx, zy] = enu(cx, cy); if (enZona(zx, zy)) { omitidos++; continue; } }
-  const key = Math.hypot(cx - HX, cy - HY) < 75 ? 'Hotel' : `T${Math.floor((cx + 1000) / TILE)}${Math.floor((cy + 1000) / TILE)}`;
+  // hotel: centro bajo la teja, o la mayoría de sus vértices bajo la teja
+  const frac = e.rings[0].filter((p) => bajoTeja(p[0], p[1])).length / e.rings[0].length;
+  const key = Math.hypot(cx - HX, cy - HY) < 75 || bajoTeja(cx, cy) || frac > 0.4 ? 'Hotel' : `T${Math.floor((cx + 1000) / TILE)}${Math.floor((cy + 1000) / TILE)}`;
   if (!secs.has(key)) secs.set(key, { P: [], N: [], UV: [], C: [], I: [], n: 0 });
   const m = secs.get(key);
 

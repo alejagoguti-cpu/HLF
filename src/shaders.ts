@@ -3,7 +3,7 @@ import * as Cesium from 'cesium';
 /** Bruma por distancia (misma atmósfera para modelo, vegetación y ciudad). */
 const HAZE_GLSL = `
   vec3 hlfHazeColor(float night) { return mix(vec3(0.70, 0.72, 0.74), vec3(0.03, 0.04, 0.07), night); }
-  float hlfHaze(float d) { return clamp(1.0 - exp(-max(0.0, d - 500.0) * 0.00009), 0.0, 0.6); }
+  float hlfHaze(float d) { return 0.0; }   // sin neblina
 `;
 
 /**
@@ -321,6 +321,8 @@ export function cityShader(): Cesium.CustomShader {
     fragmentShaderText: HAZE_GLSL + `
       void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
         vec3 c = material.diffuse;
+        // el verde y el rojo de la foto aérea se bajan un poco para que no compitan con el modelo
+        c = mix(vec3(dot(c, vec3(0.3, 0.59, 0.11))), c, 0.78);
         c = mix(c, c * vec3(0.15, 0.18, 0.25), uNight);
         material.diffuse = mix(c, hlfHazeColor(uNight), hlfHaze(length(fsInput.attributes.positionEC)));
       }
@@ -351,6 +353,70 @@ export function gradeStage(): Cesium.PostProcessStage {
         c = mix(c, c * c * (3.0 - 2.0 * c), 0.10);
         c = c * 0.97 + 0.022 * (1.0 - uNight);
         out_FragColor = vec4(c, src.a);
+      }
+    `,
+  });
+}
+
+/**
+ * Suelo modelado. capa: 0 terreno · 1 vía · 2 andén · 3 separador · 4 ciclorruta · 5 agua · 6 canal · 7 puente
+ */
+export function groundShader(capa: number): Cesium.CustomShader {
+  return new Cesium.CustomShader({
+    uniforms: {
+      uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
+      uCapa: { type: Cesium.UniformType.FLOAT, value: capa },
+    },
+    varyings: { vG: Cesium.VaryingType.VEC3 },
+    vertexShaderText: `
+      void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput) {
+        vG = vsInput.attributes.positionMC;
+      }
+    `,
+    fragmentShaderText: HAZE_GLSL + `
+      float gh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float gn(vec2 p) {
+        vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(gh(i), gh(i + vec2(1.0, 0.0)), f.x), mix(gh(i + vec2(0.0, 1.0)), gh(i + vec2(1.0, 1.0)), f.x), f.y);
+      }
+      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+        vec2 p = vG.xz;
+        float dist = length(fsInput.attributes.positionEC);
+        float near = 1.0 - smoothstep(60.0, 260.0, dist);
+        float big = gn(p * 0.035);
+        float mid = gn(p * 0.35);
+        vec3 col;
+        float rough = 0.95;
+        if (uCapa < 0.5) {            // terreno: prado y tierra
+          col = mix(vec3(0.27, 0.36, 0.20), vec3(0.36, 0.44, 0.25), big);
+          col = mix(col, vec3(0.42, 0.40, 0.30), smoothstep(0.70, 0.95, gn(p * 0.08 + 7.0)) * 0.5);
+          col *= 0.92 + 0.16 * mid;
+          col *= 1.0 - near * 0.18 * (gn(p * 3.0) - 0.5);
+        } else if (uCapa < 1.5) {     // vía: asfalto
+          col = mix(vec3(0.20, 0.20, 0.21), vec3(0.27, 0.27, 0.27), big);
+          col *= 0.94 + 0.12 * mid;
+          col *= 1.0 - near * 0.10 * (gh(floor(p * 14.0)) - 0.5);
+          rough = 0.9;
+        } else if (uCapa < 2.5) {     // andén: adoquín y concreto claro
+          col = mix(vec3(0.62, 0.60, 0.56), vec3(0.70, 0.68, 0.63), big);
+          col *= 0.95 + 0.10 * mid;
+          vec2 g = abs(fract(p / vec2(0.4, 0.2)) - 0.5);
+          col *= 1.0 - near * 0.16 * smoothstep(0.44, 0.5, max(g.x, g.y));
+        } else if (uCapa < 3.5) {     // separador: prado cuidado
+          col = mix(vec3(0.30, 0.42, 0.22), vec3(0.38, 0.50, 0.27), big) * (0.92 + 0.16 * mid);
+        } else if (uCapa < 4.5) {     // ciclorruta
+          col = vec3(0.50, 0.27, 0.22) * (0.92 + 0.14 * mid);
+        } else if (uCapa < 5.5) {     // agua del canal
+          col = mix(vec3(0.16, 0.24, 0.24), vec3(0.22, 0.30, 0.29), mid);
+          rough = 0.18;
+        } else {                      // canal y puentes: concreto
+          col = mix(vec3(0.56, 0.55, 0.52), vec3(0.64, 0.63, 0.60), big) * (0.94 + 0.10 * mid);
+        }
+        float hz = hlfHaze(dist);
+        material.diffuse = col * mix(1.0, 0.35, uNight) * (1.0 - hz);
+        material.roughness = rough;
+        material.specular = vec3(0.03) * (1.0 - hz);
+        material.emissive = col * 0.16 * (1.0 - uNight) * (1.0 - hz) + hlfHazeColor(uNight) * hz;
       }
     `,
   });

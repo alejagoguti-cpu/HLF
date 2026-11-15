@@ -26,6 +26,7 @@ const E = half(clip, (p) => p[0] >= x1, cutX(x1));
 const mid = half(half(clip, (p) => p[0] >= x0, cutX(x0)), (p) => p[0] <= x1, cutX(x1));
 const S = half(mid, (p) => p[1] <= y0, cutY(y0));
 const N = half(mid, (p) => p[1] >= y1, cutY(y1));
-const clips = [W, E, S, N].filter((p) => p.length >= 3).map((p) => p.map(toLL));
+const area = (p) => Math.abs(p.reduce((s, a, i) => { const b = p[(i + 1) % p.length]; return s + a[0] * b[1] - b[0] * a[1]; }, 0) / 2);
+const clips = [W, E, S, N].filter((p) => p.length >= 3 && area(p) > 10).map((p) => p.map(toLL));
 writeFileSync('public/secciones/recorte.json', JSON.stringify({ clips, zona: [x0, y0, x1, y1] }));
 console.log('recorte:', clips.map((c) => c.length).join(' + '), 'vértices');

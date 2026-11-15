@@ -55,7 +55,7 @@ scene.globe.enableLighting = true;
 scene.globe.showGroundAtmosphere = true;
 scene.globe.depthTestAgainstTerrain = true;
 scene.globe.maximumScreenSpaceError = 2;
-scene.fog.enabled = true;
+scene.fog.enabled = false;
 scene.fog.density = 0.00018;
 scene.fog.minimumBrightness = 0.04;
 scene.highDynamicRange = true;
@@ -71,6 +71,13 @@ sm.size = 2048;
 sm.maximumDistance = 900;
 sm.darkness = 0.42;
 sm.normalOffset = true;
+// sesgo de profundidad mayor: evita el rayado de auto-sombra en muros y cubiertas
+{
+  const bias = sm as unknown as { _primitiveBias: { depthBias: number; normalOffsetScale: number; normalShadingSmooth: number }; _terrainBias: { depthBias: number } };
+  bias._primitiveBias.depthBias = 0.0012;
+  bias._primitiveBias.normalOffsetScale = 2.2;
+  bias._primitiveBias.normalShadingSmooth = 0.25;
+}
 
 // oclusión ambiental: da peso a aleros, ventanas y copas
 const ao = scene.postProcessStages.ambientOcclusion;
@@ -314,6 +321,7 @@ boot().catch((err: unknown) => {
 /* ------------------------------------------------------------ bucle */
 
 let last = performance.now();
+let settledAt = 0;
 function tick(): void {
   const now = performance.now();
   const dt = Math.min(0.1, (now - last) / 1000);
@@ -336,9 +344,12 @@ function tick(): void {
     stats.frames = 0;
     stats.t0 = now;
     (window as unknown as { __FPS__?: number }).__FPS__ = stats.fps;
-    if (site && document.visibilityState === 'visible') {
+    // solo se evalúa con todo cargado: las pausas de la carga no cuentan como equipo lento
+    const settled = !!site && site.sections.loaded >= site.sections.total && now - settledAt > 8000;
+    if (site && site.sections.loaded >= site.sections.total && !settledAt) settledAt = now;
+    if (settled && document.visibilityState === 'visible') {
       if (stats.fps < 20 && quality > 0.25 && !(window as unknown as { __DBG__: { lock?: boolean } }).__DBG__.lock) {
-        if (++stats.low >= 2) { quality = quality >= 1 ? 0.5 : 0.25; stats.low = 0; applyQuality(); }
+        if (++stats.low >= 3) { quality = quality >= 1 ? 0.5 : 0.25; stats.low = 0; applyQuality(); }
       } else stats.low = 0;
     }
   }

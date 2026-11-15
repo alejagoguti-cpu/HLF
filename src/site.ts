@@ -1,6 +1,6 @@
 import * as Cesium from 'cesium';
 import { GEO, ASSETS } from './config';
-import { facadeShader, treeShader, cityShader } from './shaders';
+import { facadeShader, treeShader, cityShader, groundShader } from './shaders';
 
 /** Marco ENU en el origen de la georreferencia de Unreal. */
 export function siteMatrix(): Cesium.Matrix4 {
@@ -30,7 +30,8 @@ export interface Building {
 interface SectionInfo {
   key: string;
   file: string;
-  kind: 'edificios' | 'arboles' | 'cubierta';
+  kind: 'edificios' | 'arboles' | 'cubierta' | 'suelo';
+  capa?: number;
   atlas?: string;
   marco?: number;
   marcoSup?: number;
@@ -97,7 +98,7 @@ export async function loadSite(
 
   onProgress('Contexto urbano', 0.08);
 
-  const [recorte, edif, arb] = await Promise.all([
+  const [recorte, edif, arb, suelo] = await Promise.all([
     fetch(base + 'recorte.json').then((r) => r.json()) as Promise<{ clips: [number, number][][] }>,
     fetch(base + 'edificios.json').then((r) => r.json()) as Promise<{
       secciones: { key: string; file: string; c: [number, number] }[];
@@ -107,7 +108,19 @@ export async function loadSite(
       total: number;
       secciones: { key: string; file: string; n: number; atlas: string; marco: number; marcoSup: number }[];
     }>,
+    fetch(base + 'suelo.json').then((r) => r.json()) as Promise<{ secciones: { key: string; file: string }[] }>,
   ]);
+
+  const clipPolygons = () =>
+    recorte.clips.map((ring) => {
+      const polygon = new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(ring.flat()) });
+      // computeRectangle se llama por tile y por cuadro: se calcula una vez
+      const rect = polygon.computeRectangle();
+      polygon.computeRectangle = (result?: Cesium.Rectangle) => Cesium.Rectangle.clone(rect, result);
+      return polygon;
+    });
+  // dentro del ámbito del proyecto el suelo es el modelado (terreno, vías, andenes): se retira el globo
+  scene.globe.clippingPolygons = new Cesium.ClippingPolygonCollection({ polygons: clipPolygons() });
 
   /* ---------------- ciudad real (Google) recortada donde va el modelo ---------------- */
   const cShader = cityShader();
@@ -124,16 +137,8 @@ export async function loadSite(
       cacheBytes: 384 * 1024 * 1024,
       maximumCacheOverflowBytes: 256 * 1024 * 1024,
     });
-    // Se recorta la ciudad de Google solo donde va el modelo de Unreal. La zona del hotel,
-    // la plazoleta y Unicentro queda sin recortar: ahí se ve la captura 3D real.
-    const polygons = recorte.clips.map((ring) => {
-      const polygon = new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(ring.flat()) });
-      // computeRectangle se llama por tile y por cuadro: se calcula una vez
-      const rect = polygon.computeRectangle();
-      polygon.computeRectangle = (result?: Cesium.Rectangle) => Cesium.Rectangle.clone(rect, result);
-      return polygon;
-    });
-    tileset.clippingPolygons = new Cesium.ClippingPolygonCollection({ polygons });
+    // la ciudad de Google se recorta donde va el modelo del proyecto
+    tileset.clippingPolygons = new Cesium.ClippingPolygonCollection({ polygons: clipPolygons() });
     tileset.customShader = cShader;
     scene.primitives.add(tileset);
   } catch (err) {
@@ -152,7 +157,15 @@ export async function loadSite(
       dist: s.key === 'Hotel' ? -2 : Math.hypot(s.c[0] - HOTEL[0], s.c[1] - HOTEL[1]),
     });
   }
+  list.push({ key: 'hotel_cubiertas', file: 'hotel_cubiertas.glb', kind: 'cubierta', label: 'Cubiertas del hotel', dist: -1 });
   list.sort((a, b) => a.dist - b.dist);
+  const CAPA: Record<string, [number, string]> = {
+    Terreno: [0, 'Terreno'], Vias: [1, 'Vías'], Andenes: [2, 'Andenes'], Separadores: [3, 'Separadores'], Ciclorrutas: [4, 'Ciclorrutas'],
+    Agua: [5, 'Canal · agua'], Canal_Fondo: [6, 'Canal'], Canal_Muros: [6, 'Canal · muros'], Puentes: [7, 'Puentes'],
+  };
+  const ground: SectionInfo[] = suelo.secciones.map((s) => ({
+    key: s.key, file: s.file, kind: 'suelo', capa: CAPA[s.key]?.[0] ?? 0, label: CAPA[s.key]?.[1] ?? s.key, dist: -3,
+  }));
   // la vegetación entra intercalada después de las primeras edificaciones
   const trees: SectionInfo[] = arb.secciones.map((s) => ({
     key: s.key,
@@ -164,12 +177,13 @@ export async function loadSite(
     label: TREE_LABEL[s.key] ?? 'Vegetación',
     dist: 0,
   }));
-  const queue: SectionInfo[] = [...list.slice(0, 4), ...trees.slice(0, 3), ...list.slice(4, 9), ...trees.slice(3), ...list.slice(9)];
+  const queue: SectionInfo[] = [...ground, ...list.slice(0, 4), ...trees.slice(0, 3), ...list.slice(4, 9), ...trees.slice(3), ...list.slice(9)];
 
   const fShader = facadeShader();
   const tShaders: Cesium.CustomShader[] = [];
   const treeModels: Cesium.Model[] = [];
   let night = 0;
+  const groundShaders: Cesium.CustomShader[] = [];
   const state = { total: queue.length, loaded: 0, failed: [] as string[] };
 
   const loadOne = async (s: SectionInfo): Promise<void> => {
@@ -179,12 +193,17 @@ export async function loadSite(
         modelMatrix: matrix,
         upAxis: Cesium.Axis.Y,
         forwardAxis: Cesium.Axis.X,
-        shadows: s.kind === 'arboles' ? Cesium.ShadowMode.CAST_ONLY : Cesium.ShadowMode.ENABLED,
+        shadows: s.kind === 'arboles' ? Cesium.ShadowMode.CAST_ONLY : s.kind === 'suelo' ? Cesium.ShadowMode.RECEIVE_ONLY : Cesium.ShadowMode.ENABLED,
         backFaceCulling: false,
         incrementallyLoadTextures: false,
         cull: s.kind !== 'arboles',
       });
-      if (s.kind === 'arboles') {
+      if (s.kind === 'suelo') {
+        const gs = groundShader(s.capa ?? 0);
+        gs.setUniform('uNight', night);
+        groundShaders.push(gs);
+        model.customShader = gs;
+      } else if (s.kind === 'arboles') {
         const sh = treeShader(base + s.atlas!, s.marco!, s.marcoSup!);
         sh.setUniform('uNight', night);
         tShaders.push(sh);
@@ -208,7 +227,7 @@ export async function loadSite(
   };
 
   // primer plano: hotel + manzanas vecinas + primera vegetación; el resto sigue en segundo plano
-  const FIRST = 7;
+  const FIRST = ground.length + 7;
   for (let i = 0; i < Math.min(FIRST, queue.length); i++) {
     onProgress(queue[i].label, 0.2 + (0.75 * i) / FIRST);
     await loadOne(queue[i]);
@@ -232,6 +251,7 @@ export async function loadSite(
       cShader.setUniform('uNight', v);
       fShader.setUniform('uNight', v);
       night = v;
+      for (const g of groundShaders) g.setUniform('uNight', v);
       for (const sh of tShaders) sh.setUniform('uNight', v);
     },
     setTreesVisible(v: boolean) {

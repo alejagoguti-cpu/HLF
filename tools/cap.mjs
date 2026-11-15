@@ -27,6 +27,7 @@ if (camArg) {
   }, camArg);
 }
 await new Promise((r) => setTimeout(r, wait));
+if (process.env.TILES) { await page.waitForFunction("window.__DBG__.getSite().tileset.tilesLoaded === true", { timeout: 240000, polling: 1000 }).catch(() => msgs.push("tiles sin terminar")); await new Promise((r) => setTimeout(r, 3000)); }
 const info = await page.evaluate(() => {
   const gl = document.createElement('canvas').getContext('webgl2');
   const ext = gl?.getExtension('WEBGL_debug_renderer_info');

@@ -15,6 +15,7 @@
 import earcut from 'earcut';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { Glb } from './glb-writer.mjs';
+import { enZona } from './zona.mjs';
 
 const K2 = 'C:/Users/aleja/Documents/Codex/2026-11-06/co/work/k2/';
 const OUT = 'public/secciones/';
@@ -41,6 +42,7 @@ const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return
 const secs = new Map();
 const index = [];
 let id = 0;
+let omitidos = 0;
 
 for (const e of E) {
   const rings = e.rings.map((r) => clean(r.map(([x, y]) => enu(x, y)))).filter((r) => r.length >= 3);
@@ -50,6 +52,8 @@ for (const e of E) {
 
   // mismo criterio de sección que Unreal (sobre coordenadas del modelo)
   let cx = 0, cy = 0; for (const p of e.rings[0]) { cx += p[0]; cy += p[1]; } cx /= e.rings[0].length; cy /= e.rings[0].length;
+  // en la zona real manda la captura 3D del edificio verdadero: ahí no se generan volúmenes
+  { const [zx, zy] = enu(cx, cy); if (enZona(zx, zy)) { omitidos++; continue; } }
   const key = Math.hypot(cx - HX, cy - HY) < 75 ? 'Hotel' : `T${Math.floor((cx + 1000) / TILE)}${Math.floor((cy + 1000) / TILE)}`;
   if (!secs.has(key)) secs.set(key, { P: [], N: [], UV: [], C: [], I: [], n: 0 });
   const m = secs.get(key);
@@ -57,7 +61,10 @@ for (const e of E) {
   const z0 = e.base, z1 = e.base + e.h, pisos = Math.max(1, e.pisos);
   const parapet = pisos >= 3 ? 1.0 : 0.35;
   const fh = e.h / pisos;
-  const col = [Math.round(e.rnd * 255), Math.round(Math.min(1, pisos / 32) * 255), 0, Math.round(hash(id + 1) * 255)];
+  const esHotel = key === 'Hotel';
+  // el hotel va todo en el mismo ladrillo a la vista (tipo 0.12 en el canal b)
+  const col = [Math.round(e.rnd * 255), Math.round(Math.min(1, pisos / 32) * 255), 0, Math.round((esHotel ? 0.5 : hash(id + 1)) * 255)];
+  const WALL = esHotel ? 30 : 0;
   const vert = (x, y, z, nx, ny, nz, u, v, type) => {
     m.P.push(x, z, -y); m.N.push(nx, nz, -ny); m.UV.push(u, v); m.C.push(col[0], col[1], type, col[3]);
     return m.n++;
@@ -71,10 +78,10 @@ for (const e of E) {
       const nx = (y1 - y0) / L, ny = -(x1 - x0) / L;
       const nb = L < 1.8 ? 0 : Math.max(1, Math.round(L / BAY));
       const vb = -SKIRT / fh, vt = (e.h + parapet) / fh;
-      const a = vert(x0, y0, z0 - SKIRT, nx, ny, 0, 0, vb, 0);
-      const b = vert(x1, y1, z0 - SKIRT, nx, ny, 0, nb, vb, 0);
-      const c = vert(x1, y1, z1 + parapet, nx, ny, 0, nb, vt, 0);
-      const d = vert(x0, y0, z1 + parapet, nx, ny, 0, 0, vt, 0);
+      const a = vert(x0, y0, z0 - SKIRT, nx, ny, 0, 0, vb, WALL);
+      const b = vert(x1, y1, z0 - SKIRT, nx, ny, 0, nb, vb, WALL);
+      const c = vert(x1, y1, z1 + parapet, nx, ny, 0, nb, vt, WALL);
+      const d = vert(x0, y0, z1 + parapet, nx, ny, 0, 0, vt, WALL);
       m.I.push(a, b, c, a, c, d);
     }
   }
@@ -125,4 +132,4 @@ for (const [key, m] of [...secs].sort()) {
 }
 
 writeFileSync(OUT + 'edificios.json', JSON.stringify({ secciones: manifest, edificios: index }));
-console.log('edificios', index.length, 'secciones', manifest.length);
+console.log('edificios', index.length, 'secciones', manifest.length, '· en zona real (no generados):', omitidos);

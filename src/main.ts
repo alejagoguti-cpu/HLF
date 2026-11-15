@@ -54,15 +54,15 @@ const scene = viewer.scene;
 scene.globe.enableLighting = true;
 scene.globe.showGroundAtmosphere = true;
 scene.globe.depthTestAgainstTerrain = true;
-scene.globe.maximumScreenSpaceError = 1.5;
+scene.globe.maximumScreenSpaceError = 2;
 scene.fog.enabled = true;
-scene.fog.density = 0.00022;
+scene.fog.density = 0.00018;
 scene.fog.minimumBrightness = 0.04;
 scene.highDynamicRange = true;
 scene.msaaSamples = 4;
 scene.postProcessStages.fxaa.enabled = true;
 scene.screenSpaceCameraController.enableCollisionDetection = false;
-scene.light = new Cesium.SunLight({ intensity: 2.4 });
+scene.light = new Cesium.SunLight({ intensity: 2.3 });
 
 // sombras suaves concentradas en la zona que se mira
 const sm = viewer.shadowMap;
@@ -75,7 +75,7 @@ sm.normalOffset = true;
 // oclusión ambiental: da peso a aleros, ventanas y copas
 const ao = scene.postProcessStages.ambientOcclusion;
 ao.enabled = true;
-ao.uniforms.intensity = 2.2;
+ao.uniforms.intensity = 1.6;
 ao.uniforms.bias = 0.12;
 ao.uniforms.lengthCap = 0.28;
 ao.uniforms.stepSize = 1.6;
@@ -85,14 +85,20 @@ ao.uniforms.blurStepSize = 0.9;
 
 /* ------------------------------------------------------------ calidad adaptable */
 
-let quality = 1;
+// gráficas integradas: arranca en calidad media para que orbitar sea fluido
+const glInfo = (() => { try { const gl = (scene as unknown as { context: { _gl: WebGL2RenderingContext } }).context._gl; const e = gl.getExtension("WEBGL_debug_renderer_info"); return e ? String(gl.getParameter(e.UNMASKED_RENDERER_WEBGL)) : ""; } catch { return ""; } })();
+const integrated = /Intel|UHD|Iris|Mali|Adreno|Apple GPU|SwiftShader/i.test(glInfo) && !/Arc/i.test(glInfo);
+let site: Site | null = null;
+let quality = integrated || matchMedia("(pointer: coarse)").matches ? 0.5 : 1;
 function applyQuality(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   viewer.resolutionScale = dpr * (quality >= 1 ? 1 : quality >= 0.5 ? 0.8 : 0.62);
   sm.size = quality >= 1 ? 2048 : 1024;
   sm.softShadows = quality >= 0.5;
   ao.enabled = quality >= 1;
-  scene.msaaSamples = quality >= 1 ? 4 : quality >= 0.5 ? 2 : 1;
+  scene.msaaSamples = quality >= 1 ? 4 : 1;
+  viewer.shadows = quality >= 0.5;
+  if (site?.tileset) site.tileset.maximumScreenSpaceError = quality >= 1 ? 8 : quality >= 0.5 ? 12 : 20;
 }
 applyQuality();
 
@@ -109,12 +115,11 @@ cam.groundHeight = (c) => scene.globe.getHeight(c);
 
 interface LightingPreset { id: string; iso: string; night: number; fog: number; label: string; sun: number }
 const PRESETS: LightingPreset[] = [
-  { id: 'dia', iso: '2026-06-21T10:10:00-05:00', night: 0, fog: 0.00022, label: '10:10', sun: 2.4 },
-  { id: 'tarde', iso: '2026-06-21T16:50:00-05:00', night: 0.1, fog: 0.0003, label: '16:50', sun: 2.6 },
+  { id: 'dia', iso: '2026-06-21T10:10:00-05:00', night: 0, fog: 0.00022, label: '10:10', sun: 2.3 },
+  { id: 'tarde', iso: '2026-06-21T16:50:00-05:00', night: 0.1, fog: 0.0003, label: '16:50', sun: 2.1 },
   { id: 'noche', iso: '2026-06-21T19:35:00-05:00', night: 1, fog: 0.0002, label: '19:35', sun: 1.0 },
 ];
 
-let site: Site | null = null;
 let currentNight = 0;
 let clockTween: { from: number; to: number; start: number; dur: number } | null = null;
 const clockMs = (iso: string) => Cesium.JulianDate.toDate(Cesium.JulianDate.fromIso8601(iso)).getTime();
@@ -282,6 +287,7 @@ async function boot(): Promise<void> {
     },
   );
   site.setNight(currentNight);
+  applyQuality();
   progress('Listo', 1);
 
   setView('general', 2.4);
@@ -331,7 +337,7 @@ function tick(): void {
     stats.t0 = now;
     (window as unknown as { __FPS__?: number }).__FPS__ = stats.fps;
     if (site && document.visibilityState === 'visible') {
-      if (stats.fps < 20 && quality > 0.25) {
+      if (stats.fps < 20 && quality > 0.25 && !(window as unknown as { __DBG__: { lock?: boolean } }).__DBG__.lock) {
         if (++stats.low >= 2) { quality = quality >= 1 ? 0.5 : 0.25; stats.low = 0; applyQuality(); }
       } else stats.low = 0;
     }

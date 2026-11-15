@@ -31,6 +31,9 @@ interface SectionInfo {
   key: string;
   file: string;
   kind: 'edificios' | 'arboles' | 'cubierta';
+  atlas?: string;
+  marco?: number;
+  marcoSup?: number;
   label: string;
   dist: number;
 }
@@ -95,14 +98,14 @@ export async function loadSite(
   onProgress('Contexto urbano', 0.08);
 
   const [recorte, edif, arb] = await Promise.all([
-    fetch(base + 'recorte.json').then((r) => r.json()) as Promise<{ clip: [number, number][] }>,
+    fetch(base + 'recorte.json').then((r) => r.json()) as Promise<{ clips: [number, number][][] }>,
     fetch(base + 'edificios.json').then((r) => r.json()) as Promise<{
       secciones: { key: string; file: string; c: [number, number] }[];
       edificios: Building[];
     }>,
     fetch(base + 'arboles.json').then((r) => r.json()) as Promise<{
       total: number;
-      secciones: { key: string; file: string; n: number }[];
+      secciones: { key: string; file: string; n: number; atlas: string; marco: number; marcoSup: number }[];
     }>,
   ]);
 
@@ -111,8 +114,8 @@ export async function loadSite(
   let tileset: Cesium.Cesium3DTileset | null = null;
   try {
     tileset = await Cesium.Cesium3DTileset.fromUrl(ASSETS.googleTiles, {
-      maximumScreenSpaceError: 14,
-      shadows: Cesium.ShadowMode.RECEIVE_ONLY,
+      maximumScreenSpaceError: 10,
+      shadows: Cesium.ShadowMode.DISABLED,
       dynamicScreenSpaceError: true,
       dynamicScreenSpaceErrorDensity: 0.0022,
       dynamicScreenSpaceErrorFactor: 4,
@@ -121,13 +124,16 @@ export async function loadSite(
       cacheBytes: 384 * 1024 * 1024,
       maximumCacheOverflowBytes: 256 * 1024 * 1024,
     });
-    const polygon = new Cesium.ClippingPolygon({
-      positions: Cesium.Cartesian3.fromDegreesArray(recorte.clip.flat()),
+    // Se recorta la ciudad de Google solo donde va el modelo de Unreal. La zona del hotel,
+    // la plazoleta y Unicentro queda sin recortar: ahí se ve la captura 3D real.
+    const polygons = recorte.clips.map((ring) => {
+      const polygon = new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(ring.flat()) });
+      // computeRectangle se llama por tile y por cuadro: se calcula una vez
+      const rect = polygon.computeRectangle();
+      polygon.computeRectangle = (result?: Cesium.Rectangle) => Cesium.Rectangle.clone(rect, result);
+      return polygon;
     });
-    // computeRectangle se llama por tile y por cuadro: se calcula una vez
-    const rect = polygon.computeRectangle();
-    polygon.computeRectangle = (result?: Cesium.Rectangle) => Cesium.Rectangle.clone(rect, result);
-    tileset.clippingPolygons = new Cesium.ClippingPolygonCollection({ polygons: [polygon] });
+    tileset.clippingPolygons = new Cesium.ClippingPolygonCollection({ polygons });
     tileset.customShader = cShader;
     scene.primitives.add(tileset);
   } catch (err) {
@@ -146,21 +152,24 @@ export async function loadSite(
       dist: s.key === 'Hotel' ? -2 : Math.hypot(s.c[0] - HOTEL[0], s.c[1] - HOTEL[1]),
     });
   }
-  list.push({ key: 'hotel_cubiertas', file: 'hotel_cubiertas.glb', kind: 'cubierta', label: 'Cubiertas del hotel', dist: -1 });
   list.sort((a, b) => a.dist - b.dist);
   // la vegetación entra intercalada después de las primeras edificaciones
   const trees: SectionInfo[] = arb.secciones.map((s) => ({
     key: s.key,
     file: s.file,
     kind: 'arboles',
+    atlas: s.atlas,
+    marco: s.marco,
+    marcoSup: s.marcoSup,
     label: TREE_LABEL[s.key] ?? 'Vegetación',
     dist: 0,
   }));
   const queue: SectionInfo[] = [...list.slice(0, 4), ...trees.slice(0, 3), ...list.slice(4, 9), ...trees.slice(3), ...list.slice(9)];
 
   const fShader = facadeShader();
-  const tShader = treeShader();
+  const tShaders: Cesium.CustomShader[] = [];
   const treeModels: Cesium.Model[] = [];
+  let night = 0;
   const state = { total: queue.length, loaded: 0, failed: [] as string[] };
 
   const loadOne = async (s: SectionInfo): Promise<void> => {
@@ -175,7 +184,14 @@ export async function loadSite(
         incrementallyLoadTextures: false,
         cull: s.kind !== 'arboles',
       });
-      model.customShader = s.kind === 'arboles' ? tShader : fShader;
+      if (s.kind === 'arboles') {
+        const sh = treeShader(base + s.atlas!, s.marco!, s.marcoSup!);
+        sh.setUniform('uNight', night);
+        tShaders.push(sh);
+        model.customShader = sh;
+      } else model.customShader = fShader;
+      // luz de cielo neutra: sin dominante azul en muros y cubiertas
+      model.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(0.45, 0.25);
       scene.primitives.add(model);
       if (s.kind === 'arboles') treeModels.push(model);
       await new Promise<void>((resolve) => {
@@ -215,7 +231,8 @@ export async function loadSite(
     setNight(v: number) {
       cShader.setUniform('uNight', v);
       fShader.setUniform('uNight', v);
-      tShader.setUniform('uNight', v);
+      night = v;
+      for (const sh of tShaders) sh.setUniform('uNight', v);
     },
     setTreesVisible(v: boolean) {
       for (const m of treeModels) m.show = v;

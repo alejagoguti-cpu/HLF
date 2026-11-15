@@ -1,15 +1,20 @@
 /**
- * Vegetación del proyecto Unreal -> secciones GLB para la web.
+ * Vegetación del proyecto Unreal -> secciones para la web.
  *
  * Posición, giro y escala: instancias reales de los 12 actores HISM de Unreal
  * (Arboles_* del censo y ArbolesSat_* de satélite), exportadas a build/ue/*.json.
- * Geometría: impostores fotográficos de los mismos escaneos PolyHaven que usa
- * Unreal (4 vistas laterales + 4 cortes horizontales de copa), instanciados con
- * EXT_mesh_gpu_instancing. Una sección por especie.
+ * Imagen: fotografías ortográficas de los mismos escaneos PolyHaven que usa Unreal
+ * (4 vistas laterales cada 45° + vista superior). Cada árbol es un único plano que
+ * siempre mira a la cámara y elige/mezcla la vista que corresponde al ángulo real
+ * desde el que se le mira (src/shaders.ts). Una sección por especie:
+ *   arboles_<especie>.glb   un quad por árbol (centro, esquina, escala, giro)
+ *   arboles_<especie>.webp  atlas 4096x2048: fila 0 = 4 vistas laterales, fila 1 = vista superior
  */
 import sharp from 'sharp';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { Glb } from './glb-writer.mjs';
+import { enZona } from './zona.mjs';
+let enZonaReal = 0;
 
 const IMP = 'C:/Users/aleja/Documents/Codex/2026-11-06/co/web/build/impostors/';
 const UE = 'build/ue/';
@@ -46,34 +51,6 @@ async function bleed(file, size) {
   return sharp(out, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
 }
 
-function quadMesh(m, cs) {
-  const W = 4 * cs, H = 1.5 * cs;
-  const F = m.frame_size_m, T = m.top_frame_size_m;
-  const P = [], UV = [], I = [];
-  const quad = (c, u0, v0, u1, v1) => {
-    const b = P.length / 3;
-    for (const p of c) P.push(...p);
-    UV.push(u0, v1, u1, v1, u1, v0, u0, v0);
-    I.push(b, b + 1, b + 2, b, b + 2, b + 3);
-  };
-  [0, 45, 90, 135].forEach((ang, i) => {
-    const a = (ang * Math.PI) / 180, dx = (Math.cos(a) * F) / 2, dz = (-Math.sin(a) * F) / 2;
-    quad([[-dx, 0, -dz], [dx, 0, dz], [dx, F, dz], [-dx, F, -dz]], (i * cs) / W, 0, ((i + 1) * cs) / W, cs / H);
-  });
-  m.slices.forEach(([lo, hi], i) => {
-    const y = (lo + hi) / 2, h = cs / 2;
-    quad([[-T / 2, y, T / 2], [T / 2, y, T / 2], [T / 2, y, -T / 2], [-T / 2, y, -T / 2]], (i * h) / W, cs / H, ((i + 1) * h) / W, (cs + h) / H);
-  });
-  // normales radiales desde el centro de la copa: volumen con el sol en vez de cartón plano
-  const N = [];
-  const cy = F * 0.5;
-  for (let i = 0; i < P.length; i += 3) {
-    const x = P[i], y = (P[i + 1] - cy) * 1.1 + F * 0.12, z = P[i + 2];
-    const l = Math.hypot(x, y, z) || 1;
-    N.push(x / l, y / l, z / l);
-  }
-  return { P: new Float32Array(P), N: new Float32Array(N), UV: new Float32Array(UV), I: new Uint16Array(I) };
-}
 
 mkdirSync(OUT, { recursive: true });
 const manifest = [];
@@ -85,57 +62,62 @@ for (const k of SPECIES) {
     const f = `${UE}${pre}${k}.json`;
     if (!existsSync(f)) continue;
     const d = JSON.parse(readFileSync(f, 'utf8'));
-    for (let i = 0; i < d.inst.length; i += 6) inst.push(d.inst.slice(i, i + 6));
+    for (let i = 0; i < d.inst.length; i += 6) {
+      // en la zona real los árboles son los de la captura 3D
+      if (enZona(d.inst[i] / 100, -d.inst[i + 1] / 100)) { enZonaReal++; continue; }
+      inst.push(d.inst.slice(i, i + 6));
+    }
     origen.push({ actor: d.actor, n: d.n });
   }
   if (!inst.length) continue;
   const m = META[k];
-  const cs = k === 'shrub_02' || k === 'fir_sapling_medium' ? 512 : 1024;
+  const small = k === 'shrub_02' || k === 'fir_sapling_medium';
+  const cs = small ? 512 : 1024;
 
   const layers = [];
   for (let i = 0; i < 4; i++) layers.push({ input: await bleed(`${IMP}${k}/${SIDES[i]}.png`, cs), left: i * cs, top: 0 });
-  for (let i = 0; i < 4; i++) layers.push({ input: await bleed(`${IMP}${k}/${SLICES[i]}.png`, cs / 2), left: (i * cs) / 2, top: cs });
-  const atlas = await sharp({ create: { width: 4 * cs, height: 1.5 * cs, channels: 4, background: { r: 70, g: 92, b: 48, alpha: 0 } } })
-    .composite(layers).webp({ quality: 86, alphaQuality: 92, effort: 5 }).toBuffer();
+  layers.push({ input: await bleed(`${IMP}${k}/top.png`, cs), left: 0, top: cs });
+  const atlas = await sharp({ create: { width: 4 * cs, height: 2 * cs, channels: 4, background: { r: 70, g: 92, b: 48, alpha: 0 } } })
+    .composite(layers).webp({ quality: 88, alphaQuality: 94, effort: 5 }).toBuffer();
+  writeFileSync(`${OUT}arboles_${k}.webp`, atlas);
 
-  const g = new Glb();
-  g.use('EXT_mesh_gpu_instancing');
-  const tex = g.image(atlas, 'image/webp');
-  g.j.materials.push({
-    name: k, doubleSided: true, alphaMode: 'MASK', alphaCutoff: 0.42,
-    pbrMetallicRoughness: { baseColorTexture: { index: tex }, metallicFactor: 0, roughnessFactor: 0.82 },
+  const n = inst.length;
+  const P = new Float32Array(n * 12), C = new Float32Array(n * 8), Z = new Float32Array(n * 8), Col = new Uint8Array(n * 16);
+  const I = new Uint32Array(n * 6);
+  const corners = [[-1, 0], [1, 0], [1, 1], [-1, 1]];
+  inst.forEach(([x, y, z, yaw, sx, sz], i) => {
+    const giro = ((((-yaw * Math.PI) / 180) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI); // giro glTF alrededor de +Y
+    const seed = Math.abs(Math.sin(x * 0.0127 + y * 0.0311) * 43758.5453) % 1;
+    for (let c = 0; c < 4; c++) {
+      P.set([x / 100, z / 100, y / 100], i * 12 + c * 3);       // base del árbol: ENU -> (E, arriba, -N)
+      C.set(corners[c], i * 8 + c * 2);
+      Z.set([sx, sz], i * 8 + c * 2);
+      Col.set([Math.round((giro / (2 * Math.PI)) * 255), Math.round(seed * 255), 0, 255], i * 16 + c * 4);
+    }
+    I.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
   });
-  const q = quadMesh(m, cs);
+  const g = new Glb();
+  g.j.materials.push({ name: k, doubleSided: true, alphaMode: 'MASK', alphaCutoff: 0.5, pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 0.9 } });
   g.j.meshes.push({
     name: k,
     primitives: [{
       attributes: {
-        POSITION: g.acc(q.P, 'VEC3', { target: 34962, minmax: true }),
-        NORMAL: g.acc(q.N, 'VEC3', { target: 34962 }),
-        TEXCOORD_0: g.acc(q.UV, 'VEC2', { target: 34962 }),
+        POSITION: g.acc(P, 'VEC3', { target: 34962, minmax: true }),
+        TEXCOORD_0: g.acc(C, 'VEC2', { target: 34962 }),
+        TEXCOORD_1: g.acc(Z, 'VEC2', { target: 34962 }),
+        COLOR_0: g.acc(Col, 'VEC4', { target: 34962, normalized: true }),
       },
-      indices: g.acc(q.I, 'SCALAR', { target: 34963 }),
+      indices: g.acc(I, 'SCALAR', { target: 34963 }),
       material: 0,
     }],
   });
-  const n = inst.length;
-  const tr = new Float32Array(n * 3), rot = new Float32Array(n * 4), sc = new Float32Array(n * 3);
-  inst.forEach(([x, y, z, yaw, sx, sz], i) => {
-    tr.set([x / 100, z / 100, y / 100], i * 3); // ENU -> (E, Arriba, -N);  N = -y_UE
-    const h = (-yaw * Math.PI) / 360;
-    rot.set([0, Math.sin(h), 0, Math.cos(h)], i * 4);
-    sc.set([sx, sz, sx], i * 3);
-  });
-  g.j.nodes.push({
-    name: 'Arboles_' + k, mesh: 0,
-    extensions: { EXT_mesh_gpu_instancing: { attributes: { TRANSLATION: g.acc(tr, 'VEC3', { minmax: true }), ROTATION: g.acc(rot, 'VEC4'), SCALE: g.acc(sc, 'VEC3') } } },
-  });
+  g.j.nodes.push({ name: 'Arboles_' + k, mesh: 0 });
   g.j.scenes[0].nodes.push(0);
   const file = `arboles_${k}.glb`;
   const bytes = g.write(OUT + file);
-  manifest.push({ key: k, file, n, kb: Math.round(bytes / 1024), alto: m.height_m, origen });
+  manifest.push({ key: k, file, atlas: `arboles_${k}.webp`, n, kb: Math.round((bytes + atlas.length) / 1024), marco: m.frame_size_m, marcoSup: m.top_frame_size_m, alto: m.height_m, origen });
   total += n;
-  console.log(k, n, 'árboles', (bytes / 1024).toFixed(0) + ' KB', JSON.stringify(origen));
+  console.log(k, n, 'árboles', ((bytes + atlas.length) / 1024).toFixed(0) + ' KB');
 }
 writeFileSync(OUT + 'arboles.json', JSON.stringify({ total, secciones: manifest }));
-console.log('TOTAL', total);
+console.log('TOTAL', total, '· en zona real (no generados):', enZonaReal);

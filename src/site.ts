@@ -49,7 +49,11 @@ export interface Site {
   /** resuelve cuando termina la carga de todas las secciones */
   done: Promise<void>;
   setNight(night: number): void;
+  setTarde(tarde: number): void;
+  setTime(t: number): void;
   setTreesVisible(v: boolean): void;
+  /** pisos del hotel visibles (99 = completo) */
+  setHotelFloors(n: number): void;
   buildingAt(world: Cesium.Cartesian3): Building | null;
 }
 
@@ -249,6 +253,7 @@ export async function loadSite(
   const tShaders: Cesium.CustomShader[] = [];
   const treeModels: Cesium.Model[] = [];
   let night = 0;
+  let tarde = 0;
 
   const state = { total: queue.length, loaded: 0, failed: [] as string[] };
 
@@ -267,11 +272,12 @@ export async function loadSite(
       if (s.kind === 'suelo') model.customShader = gShader; else if (s.kind === 'arboles') {
         const sh = treeShader(base + s.atlas!, s.marco!, s.marcoSup!);
         sh.setUniform('uNight', night);
+        sh.setUniform('uTarde', tarde);
         tShaders.push(sh);
         model.customShader = sh;
       } else model.customShader = fShader;
-      // luz de cielo neutra: sin dominante azul en muros y cubiertas
-      model.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(0.45, 0.25);
+      // iluminación IBL para reflejos en vidrios y cubiertas
+      model.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(0.75, 0.45);
       scene.primitives.add(model);
       if (s.kind === 'arboles') treeModels.push(model);
       await new Promise<void>((resolve) => {
@@ -314,6 +320,19 @@ export async function loadSite(
       night = v;
       gShader.setUniform('uNight', v);
       for (const sh of tShaders) sh.setUniform('uNight', v);
+    },
+    setTarde(v: number) {
+      cShader.setUniform('uTarde', v);
+      fShader.setUniform('uTarde', v);
+      tarde = v;
+      gShader.setUniform('uTarde', v);
+      for (const sh of tShaders) sh.setUniform('uTarde', v);
+    },
+    setTime(t: number) {
+      for (const sh of tShaders) sh.setUniform('uTime', t);
+    },
+    setHotelFloors(n: number) {
+      fShader.setUniform('uHotelPisos', n);
     },
     setTreesVisible(v: boolean) {
       for (const m of treeModels) m.show = v;

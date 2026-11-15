@@ -103,7 +103,7 @@ for (const e of E) {
   rings.forEach((r, i) => { if (i) holes.push(flat.length / 2); for (const p of r) flat.push(p[0], p[1]); });
   const tris = earcut(flat, holes, 2);
   const base = m.n;
-  for (let i = 0; i < flat.length; i += 2) vert(flat[i], flat[i + 1], z1, 0, 0, 1, flat[i], flat[i + 1], 255);
+  for (let i = 0; i < flat.length; i += 2) vert(flat[i], flat[i + 1], z1, 0, 0, 1, flat[i], flat[i + 1], esHotel ? 236 : 255);
   for (let i = 0; i < tris.length; i += 3) m.I.push(base + tris[i], base + tris[i + 1], base + tris[i + 2]);
 
   const ext = rings[0];

@@ -4,6 +4,8 @@ import * as Cesium from 'cesium';
 import { ASSETS, PLACES, VIEWS } from './config';
 import { ArchCamera } from './arch-camera';
 import { loadSite, enuToWorld, type Site, type Building } from './site';
+import { createTrafico, type Trafico } from './vehiculos';
+import { gradeStage } from './shaders';
 
 /* ============================================================
    UNICENTRO · Hotel La Fontana · visor arquitectónico
@@ -62,31 +64,45 @@ scene.highDynamicRange = true;
 scene.msaaSamples = 4;
 scene.postProcessStages.fxaa.enabled = true;
 scene.screenSpaceCameraController.enableCollisionDetection = false;
-scene.light = new Cesium.SunLight({ intensity: 2.3 });
+scene.light = new Cesium.SunLight({ intensity: 3.0, color: Cesium.Color.fromCssColorString('#fff4e3') });
 
-// sombras suaves concentradas en la zona que se mira
+// sombras suaves de alta resolución estilo Unreal
 const sm = viewer.shadowMap;
 sm.softShadows = true;
-sm.size = 2048;
-sm.maximumDistance = 900;
-sm.darkness = 0.42;
+sm.size = 4096;
+sm.maximumDistance = 1200;
+sm.darkness = 0.24;
 sm.normalOffset = true;
-// sesgo de profundidad mayor: evita el rayado de auto-sombra en muros y cubiertas
+// sesgo de profundidad ajustado: contacto firme en bases y sin rayado en muros/cubiertas
 {
   const bias = sm as unknown as { _primitiveBias: { depthBias: number; normalOffsetScale: number; normalShadingSmooth: number }; _terrainBias: { depthBias: number } };
-  bias._primitiveBias.depthBias = 0.0012;
-  bias._primitiveBias.normalOffsetScale = 2.2;
-  bias._primitiveBias.normalShadingSmooth = 0.25;
+  bias._primitiveBias.depthBias = 0.0008;
+  bias._primitiveBias.normalOffsetScale = 1.6;
+  bias._primitiveBias.normalShadingSmooth = 0.35;
 }
 
-// oclusión ambiental: da peso a aleros, ventanas y copas
+// oclusión ambiental: contacto en aleros, nichos y bases de edificios
 const ao = scene.postProcessStages.ambientOcclusion;
 ao.enabled = true;
-ao.uniforms.intensity = 1.6;
-ao.uniforms.bias = 0.12;
-ao.uniforms.lengthCap = 0.28;
-ao.uniforms.stepSize = 1.6;
-ao.uniforms.blurStepSize = 0.9;
+ao.uniforms.intensity = 2.1;
+ao.uniforms.bias = 0.08;
+ao.uniforms.lengthCap = 0.35;
+ao.uniforms.stepSize = 1.4;
+ao.uniforms.blurStepSize = 1.0;
+
+// bloom sutil en reflejos solares y ventanas nocturnas
+const bloom = scene.postProcessStages.bloom;
+bloom.enabled = true;
+bloom.uniforms.glowOnly = false;
+bloom.uniforms.contrast = 128;
+bloom.uniforms.brightness = -0.36;
+bloom.uniforms.delta = 1.0;
+bloom.uniforms.sigma = 2.6;
+bloom.uniforms.stepSize = 1.5;
+
+// etalonaje fílmico estilo Unreal
+const grade = gradeStage();
+scene.postProcessStages.add(grade);
 
 (viewer.camera.frustum as Cesium.PerspectiveFrustum).fov = Cesium.Math.toRadians(48);
 
@@ -100,9 +116,10 @@ let quality = integrated || matchMedia("(pointer: coarse)").matches ? 0.5 : 1;
 function applyQuality(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   viewer.resolutionScale = dpr * (quality >= 1 ? 1 : quality >= 0.5 ? 0.8 : 0.62);
-  sm.size = quality >= 1 ? 2048 : 1024;
+  sm.size = quality >= 1 ? 4096 : quality >= 0.5 ? 2048 : 1024;
   sm.softShadows = quality >= 0.5;
   ao.enabled = quality >= 1;
+  bloom.enabled = quality >= 0.5;
   scene.msaaSamples = quality >= 1 ? 4 : 1;
   viewer.shadows = quality >= 0.5;
   if (site?.tileset) site.tileset.maximumScreenSpaceError = quality >= 1 ? 8 : quality >= 0.5 ? 12 : 20;
@@ -120,14 +137,15 @@ cam.groundHeight = (c) => scene.globe.getHeight(c);
 
 /* ------------------------------------------------------------ luz / hora */
 
-interface LightingPreset { id: string; iso: string; night: number; fog: number; label: string; sun: number }
+interface LightingPreset { id: string; iso: string; night: number; tarde: number; fog: number; label: string; sun: number; color: string }
 const PRESETS: LightingPreset[] = [
-  { id: 'dia', iso: '2026-06-21T10:10:00-05:00', night: 0, fog: 0.00022, label: '10:10', sun: 2.3 },
-  { id: 'tarde', iso: '2026-06-21T16:50:00-05:00', night: 0.1, fog: 0.0003, label: '16:50', sun: 2.1 },
-  { id: 'noche', iso: '2026-06-21T19:35:00-05:00', night: 1, fog: 0.0002, label: '19:35', sun: 1.0 },
+  { id: 'dia', iso: '2026-06-21T10:10:00-05:00', night: 0, tarde: 0, fog: 0.00018, label: '10:10', sun: 3.0, color: '#fff4e3' },
+  { id: 'tarde', iso: '2026-06-21T16:50:00-05:00', night: 0.04, tarde: 1, fog: 0.00022, label: '16:50', sun: 2.8, color: '#ffe3c4' },
+  { id: 'noche', iso: '2026-06-21T19:35:00-05:00', night: 1, tarde: 0, fog: 0.00022, label: '19:35', sun: 0.65, color: '#6b8fd4' },
 ];
 
 let currentNight = 0;
+let currentTarde = 0;
 let clockTween: { from: number; to: number; start: number; dur: number } | null = null;
 const clockMs = (iso: string) => Cesium.JulianDate.toDate(Cesium.JulianDate.fromIso8601(iso)).getTime();
 
@@ -136,12 +154,26 @@ function applyPreset(p: LightingPreset): void {
   clockTween = { from, to: clockMs(p.iso), start: performance.now(), dur: 1600 };
   scene.fog.density = p.fog;
   (scene.light as Cesium.SunLight).intensity = p.sun;
+  (scene.light as Cesium.SunLight).color = Cesium.Color.fromCssColorString(p.color);
+  bloom.uniforms.brightness = -0.36;
+  // el cielo acompaña la hora: tarde limpia de montaña en Bogotá, profundo de noche
+  if (scene.skyAtmosphere) {
+    scene.skyAtmosphere.hueShift = 0;
+    scene.skyAtmosphere.saturationShift = p.id === 'tarde' ? 0.08 : p.id === 'noche' ? -0.25 : 0.06;
+    scene.skyAtmosphere.brightnessShift = p.id === 'noche' ? -0.55 : p.id === 'tarde' ? -0.04 : 0;
+  }
   const fromN = currentNight;
+  const fromT = currentTarde;
   const start = performance.now();
   const step = () => {
     const t = Math.min(1, (performance.now() - start) / 1400);
-    currentNight = fromN + (p.night - fromN) * (t * t * (3 - 2 * t));
+    const e = t * t * (3 - 2 * t);
+    currentNight = fromN + (p.night - fromN) * e;
+    currentTarde = fromT + (p.tarde - fromT) * e;
     site?.setNight(currentNight);
+    site?.setTarde(currentTarde);
+    grade.uniforms.uNight = currentNight;
+    grade.uniforms.uTarde = currentTarde;
     if (t < 1) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
@@ -215,6 +247,16 @@ addEventListener('keydown', (e) => {
 /* ------------------------------------------------------------ selección */
 
 let selected: Building | null = null;
+let trafico: Trafico | null = null;
+
+/* Hotel La Fontana: al seleccionarlo se arma piso por piso */
+const HOTEL_PISOS = 9;
+let hotelAnim: { start: number } | null = null;
+function playHotel(): void {
+  if (!site) return;
+  hotelAnim = { start: performance.now() };
+  site.setHotelFloors(0);
+}
 let highlight: Cesium.Entity | null = null;
 const card = $('card');
 
@@ -227,6 +269,7 @@ function buildingDoor(b: Building): Cesium.Cartesian3 {
 }
 
 function select(b: Building | null): void {
+  const wasHotel = selected?.s === 'Hotel';
   selected = b;
   if (highlight) { viewer.entities.remove(highlight); highlight = null; }
   if (!b || !site) { if (card) card.hidden = true; return; }
@@ -246,14 +289,26 @@ function select(b: Building | null): void {
   });
 
   const hotel = b.s === 'Hotel';
+  if (hotel && !wasHotel) {
+    playHotel();
+    stopOrbit();
+    cam.flyTo({ pivot: placeWorld('hotel'), pitch: -0.38, range: 290 }, 1.8);
+  }
+  const piezas = hotel && site ? site.buildings.filter((x) => x.s === 'Hotel') : [b];
+  const areaDe = (x: Building) => Math.abs(x.r.reduce((s, p, i) => { const q = x.r[(i + 1) % x.r.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0) / 2);
+  const huella = piezas.reduce((s, x) => s + areaDe(x), 0);
+  const construida = piezas.reduce((s, x) => s + areaDe(x) * x.p, 0);
+  const pisosMax = Math.max(...piezas.map((x) => x.p));
+  const altoMax = Math.max(...piezas.map((x) => x.h));
   const area = Math.abs(b.r.reduce((s, p, i) => { const q = b.r[(i + 1) % b.r.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0) / 2);
   $('cardKind')!.textContent = hotel ? 'Proyecto' : `Sector ${b.s}`;
   $('cardTitle')!.textContent = hotel ? 'Hotel La Fontana' : `Edificación ${b.id + 1}`;
   $('cardData')!.innerHTML =
-    `<dt>Pisos</dt><dd>${b.p}</dd>` +
-    `<dt>Altura</dt><dd>${b.h.toFixed(1)} m</dd>` +
-    `<dt>Huella</dt><dd>${Math.round(area).toLocaleString('es-CO')} m²</dd>` +
-    `<dt>Área aprox.</dt><dd>${Math.round(area * b.p).toLocaleString('es-CO')} m²</dd>`;
+    `<dt>Pisos</dt><dd>${hotel ? 'hasta ' + pisosMax : b.p}</dd>` +
+    `<dt>Altura</dt><dd>${altoMax.toFixed(1)} m</dd>` +
+    `<dt>Huella</dt><dd>${Math.round(huella).toLocaleString('es-CO')} m²</dd>` +
+    `<dt>Área aprox.</dt><dd>${Math.round(construida).toLocaleString('es-CO')} m²</dd>`;
+  void area;
   if (card) card.hidden = false;
 }
 
@@ -294,6 +349,7 @@ async function boot(): Promise<void> {
     },
   );
   site.setNight(currentNight);
+  site.setTarde(currentTarde);
   applyQuality();
   progress('Listo', 1);
 
@@ -303,12 +359,15 @@ async function boot(): Promise<void> {
   const hint = $('hint');
   if (hint) setTimeout(() => hint.classList.add('fade'), 9000);
   (window as unknown as { __READY__?: boolean }).__READY__ = true;
-  site.done.then(() => { (window as unknown as { __ALL__?: boolean }).__ALL__ = true; });
+  site.done.then(async () => {
+    trafico = await createTrafico(viewer, site!.matrix);
+    (window as unknown as { __ALL__?: boolean }).__ALL__ = true;
+  });
 }
 
 const stats = { fps: 0, frames: 0, t0: performance.now(), low: 0 };
 (window as unknown as { __DBG__?: unknown }).__DBG__ = {
-  Cesium, viewer, cam, getSite: () => site, enuToWorld, select, stats,
+  Cesium, viewer, cam, getSite: () => site, enuToWorld, select, stats, playHotel, getTrafico: () => trafico,
   setQuality: (q: number) => { quality = q; applyQuality(); },
 };
 
@@ -333,6 +392,18 @@ function tick(): void {
     viewer.clock.currentTime = Cesium.JulianDate.fromDate(new Date(clockTween.from + (clockTween.to - clockTween.from) * e));
     if (t >= 1) clockTween = null;
   }
+
+  if (hotelAnim && site) {
+    // 0,55 s por piso; cada piso entra con un pequeño rebote
+    const t = (now - hotelAnim.start) / 550;
+    const piso = Math.floor(t);
+    const k = t - piso;
+    const e = 1 - Math.pow(1 - Math.min(1, k * 1.6), 3);
+    if (piso >= HOTEL_PISOS) { site.setHotelFloors(99); hotelAnim = null; }
+    else site.setHotelFloors(piso + e);
+  }
+  trafico?.update(dt);
+  site?.setTime(now * 0.001);
 
   if (autoOrbit && !cam.isWalking) cam.flyTo({ heading: cam.state.heading + 0.16 * dt }, 0);
   cam.update(dt);

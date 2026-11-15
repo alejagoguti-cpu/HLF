@@ -26,8 +26,7 @@ html, body {
 
 /* Cesium: fuera el chrome por defecto, solo la atribución */
 .cesium-viewer-bottom,
-.cesium-viewer .cesium-widget-credits,
-.cesium-credit-lightbox-overlay { display: block !important; }
+.cesium-viewer .cesium-widget-credits { display: block !important; }
 .cesium-widget-credits {
   font-family: var(--font) !important;
   font-size: 10.5px !important;

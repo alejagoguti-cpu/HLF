@@ -41,7 +41,7 @@ export const ASSETS = {
     'https://tile.googleapis.com/v1/3dtiles/root.json?key=AIzaSyCF2MXjc0DYRFrHk7j_BCyxVpWOdYqDIC4',
   /** Token de Cesium ion: terreno mundial y ortoimagen */
   ionToken:
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6ImRMbFhmei13R1BpSHBVWUwiLCJqdGkiOiIyYmRmNmQ2OS03N2YzLTQ5YmMtODk1Mi0wZDM1NzgxY2FkZjEiLCJpZCI6NTE4MTQ4LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3OTE0OTA0ODl9.njF178HaT3Fn4iedcM-Mqoj8krezbVuFv37kLa9z4ps',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6ImF2ZnN2RnJVaUNyUzJBMUUiLCJqdGkiOiJjY2I2YjZkYy00MzVlLTRkN2QtOWE1OC1kYjc3ODgxNTIwZTMiLCJpZCI6NTE4MTQ4LCJzdWIiOiJhbGVqYW5kcmFnb21lemciLCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoiVW50aXRsZWQiLCJpYXQiOjE3OTQxMDYyMjF9.ZiqV9XpE9kYg8-lutOYpMnZxhtiKBPlZHpv2Eg983ts',
   /** Bing Maps Aerial de Cesium ion */
   imageryAssetId: 2,
 } as const;

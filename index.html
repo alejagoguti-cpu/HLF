@@ -3,57 +3,60 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>UNICENTRO · Bogotá · Visor 3D</title>
+  <meta name="theme-color" content="#0b0f14" />
+  <title>UNICENTRO · Bogotá · Visor arquitectónico</title>
   <link rel="stylesheet" href="./src/style.css" />
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
-      }
-    }
-  </script>
 </head>
 <body>
-  <canvas id="scene"></canvas>
+  <div id="cesiumContainer"></div>
 
-  <header class="card">
-    <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-      <path d="M12 2 21 7v10l-9 5-9-5V7z" />
-      <path d="M3 7l9 5 9-5M12 12v10" />
-    </svg>
-    <div>
-      <h1>UNICENTRO</h1>
-      <p>Bogotá · contexto andino</p>
-    </div>
+  <header class="brand">
+    <span class="mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M12 2.6 21 7.4v9.2L12 21.4 3 16.6V7.4z" />
+        <path d="M3 7.4 12 12.2l9-4.8M12 12.2v9.2" />
+      </svg>
+    </span>
+    <span class="text">
+      <strong>UNICENTRO</strong>
+      <small>Bogotá · La Fontana</small>
+    </span>
   </header>
 
   <div class="clock">
-    <span id="sun-label">Día</span>
+    <span id="clockLabel">10:10</span>
   </div>
 
-  <footer class="bar-ui">
-    <div class="group">
-      <button data-time="dia" class="on">Día</button>
-      <button data-time="tarde">Tarde</button>
-      <button data-time="noche">Noche</button>
-    </div>
-    <div class="group">
-      <button id="btn-home">Vista general</button>
-    </div>
-  </footer>
+  <div id="hint">
+    Arrastra para orbitar · Rueda para acercar · Clic para fijar el pivote · Doble clic para enfocar
+  </div>
 
-  <div id="stats"></div>
+  <nav class="dock">
+    <div class="group" role="group" aria-label="Hora del día">
+      <button data-light="dia" class="on">Día</button>
+      <button data-light="tarde">Tarde</button>
+      <button data-light="noche">Noche</button>
+    </div>
+    <span class="sep" aria-hidden="true"></span>
+    <div class="group" role="group" aria-label="Vistas">
+      <button id="btnAerial">Aérea</button>
+      <button id="btnPedestrian">Peatonal</button>
+      <button id="btnHome">Vista general</button>
+    </div>
+  </nav>
 
-  <div id="loader">
-    <div class="loader-inner">
-      <div class="spinner"></div>
-      <div class="track"><div id="bar"></div></div>
-      <div id="pct">0%</div>
-      <p>Cargando escena</p>
+  <div id="loading">
+    <div class="inner">
+      <div class="ring"></div>
+      <h2>Unicentro · Bogotá</h2>
+      <div class="track"><div id="loadBar"></div></div>
+      <div class="meta">
+        <span id="loadLabel">Iniciando</span>
+        <span id="loadPct">0%</span>
+      </div>
     </div>
   </div>
 
-  <script type="module" src="./src/main.js"></script>
+  <script type="module" src="./src/main.ts"></script>
 </body>
 </html>

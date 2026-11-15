@@ -1,9 +1,12 @@
 :root {
-  --glass: rgba(14, 18, 24, 0.55);
-  --line: rgba(255, 255, 255, 0.14);
-  --ink: #f3f5f8;
-  --muted: rgba(243, 245, 248, 0.62);
-  --accent: #7fb2e5;
+  --glass: rgba(12, 16, 22, 0.52);
+  --glass-strong: rgba(12, 16, 22, 0.72);
+  --line: rgba(255, 255, 255, 0.13);
+  --ink: #eef2f7;
+  --muted: rgba(238, 242, 247, 0.58);
+  --accent: #9dc4ea;
+  --radius: 14px;
+  --font: ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -12,151 +15,224 @@ html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #0a0d12;
+  background: #070a0f;
   color: var(--ink);
-  font-family: ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+  font-family: var(--font);
   -webkit-font-smoothing: antialiased;
-  touch-action: none;
 }
 
-#scene { display: block; width: 100%; height: 100%; }
+#cesiumContainer { position: fixed; inset: 0; }
+#cesiumContainer canvas { outline: none; display: block; }
 
-.card {
+/* Cesium: fuera el chrome por defecto, solo la atribución */
+.cesium-viewer-bottom,
+.cesium-viewer .cesium-widget-credits,
+.cesium-credit-lightbox-overlay { display: block !important; }
+.cesium-widget-credits {
+  font-family: var(--font) !important;
+  font-size: 10.5px !important;
+  color: rgba(238, 242, 247, 0.5) !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9) !important;
+  padding: 0 10px 8px !important;
+  opacity: 0.85;
+}
+.cesium-widget-credits a,
+.cesium-credit-text,
+.cesium-credit-expand-link { color: rgba(238, 242, 247, 0.5) !important; }
+.cesium-credit-logoContainer { display: none !important; }
+
+/* ---------------- marca ---------------- */
+
+.brand {
   position: fixed;
-  top: 18px;
-  left: 18px;
+  top: 20px;
+  left: 20px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px 12px 14px;
+  gap: 11px;
+  padding: 10px 15px 10px 12px;
   background: var(--glass);
   border: 1px solid var(--line);
-  border-radius: 14px;
-  backdrop-filter: blur(14px) saturate(130%);
-  -webkit-backdrop-filter: blur(14px) saturate(130%);
-  box-shadow: 0 18px 40px -22px rgba(0, 0, 0, 0.85);
+  border-radius: var(--radius);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: 0 20px 44px -26px rgba(0, 0, 0, 0.9);
   pointer-events: none;
+  user-select: none;
 }
 
-.logo { width: 26px; height: 26px; color: var(--accent); flex: none; }
+.mark { color: var(--accent); display: flex; }
+.mark svg { width: 23px; height: 23px; }
 
-.card h1 {
-  margin: 0;
-  font-size: 15px;
-  letter-spacing: 0.16em;
-  font-weight: 600;
-}
-
-.card p {
-  margin: 2px 0 0;
-  font-size: 11.5px;
+.brand .text { display: grid; gap: 1px; }
+.brand strong { font-size: 13px; letter-spacing: 0.2em; font-weight: 600; }
+.brand small {
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
   color: var(--muted);
-  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
+
+/* ---------------- reloj ---------------- */
 
 .clock {
   position: fixed;
-  top: 18px;
-  right: 18px;
-  padding: 9px 16px;
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  top: 20px;
+  right: 20px;
+  padding: 8px 15px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 999px;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  color: var(--muted);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  user-select: none;
 }
 
-.bar-ui {
+/* ---------------- dock ---------------- */
+
+.dock {
   position: fixed;
-  bottom: 22px;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 10px;
-  padding: 8px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 999px;
-  backdrop-filter: blur(14px) saturate(130%);
-  -webkit-backdrop-filter: blur(14px) saturate(130%);
-  box-shadow: 0 22px 50px -26px rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: 0 26px 56px -30px rgba(0, 0, 0, 0.95);
 }
 
-.group { display: flex; gap: 4px; }
+.group { display: flex; gap: 2px; }
 
-.bar-ui button {
+.sep {
+  width: 1px;
+  height: 20px;
+  background: var(--line);
+  margin: 0 4px;
+}
+
+.dock button {
   appearance: none;
   border: 0;
   background: transparent;
   color: var(--muted);
   font: inherit;
   font-size: 12.5px;
-  letter-spacing: 0.02em;
-  padding: 9px 16px;
+  letter-spacing: 0.01em;
+  padding: 9px 15px;
   border-radius: 999px;
   cursor: pointer;
-  transition: background 0.18s ease, color 0.18s ease;
+  transition: background 0.16s ease, color 0.16s ease;
+  white-space: nowrap;
 }
 
-.bar-ui button:hover { color: var(--ink); background: rgba(255, 255, 255, 0.08); }
-.bar-ui button.on { color: #0b1017; background: #e9eff6; font-weight: 600; }
+.dock button:hover { color: var(--ink); background: rgba(255, 255, 255, 0.075); }
+.dock button:active { transform: translateY(0.5px); }
+.dock button.on { color: #0a0e14; background: #e8eef6; font-weight: 600; }
 
-#stats {
+/* ---------------- pista ---------------- */
+
+#hint {
   position: fixed;
-  left: 18px;
-  bottom: 22px;
+  bottom: 78px;
+  left: 50%;
+  transform: translateX(-50%);
   font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: rgba(243, 245, 248, 0.45);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
+  color: rgba(238, 242, 247, 0.42);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
   pointer-events: none;
+  transition: opacity 0.8s ease;
+  white-space: nowrap;
 }
+#hint.fade { opacity: 0; }
 
-#loader {
+/* ---------------- cargando ---------------- */
+
+#loading {
   position: fixed;
   inset: 0;
+  z-index: 30;
   display: grid;
   place-items: center;
-  background: radial-gradient(120% 90% at 50% 0%, #131a24 0%, #080a0e 70%);
-  transition: opacity 0.7s ease, visibility 0.7s;
-  z-index: 20;
+  background:
+    radial-gradient(120% 80% at 50% 0%, #17202c 0%, #0a0e14 55%, #06080c 100%);
+  transition: opacity 0.8s ease, visibility 0.8s;
 }
+#loading.done { opacity: 0; visibility: hidden; }
 
-#loader.done { opacity: 0; visibility: hidden; }
+#loading .inner { display: grid; justify-items: center; gap: 15px; }
 
-.loader-inner { display: grid; justify-items: center; gap: 14px; }
-
-.spinner {
-  width: 34px; height: 34px;
+.ring {
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.12);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
   border-top-color: var(--accent);
-  animation: spin 0.9s linear infinite;
+  animation: spin 0.95s linear infinite;
 }
-
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.track {
-  width: 190px; height: 2px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
-  overflow: hidden;
+#loading h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(238, 242, 247, 0.8);
 }
 
-#bar { height: 100%; width: 0%; background: var(--accent); transition: width 0.25s ease; }
+.track {
+  width: 208px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+#loadBar {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
 
-#pct { font-size: 11px; letter-spacing: 0.14em; color: var(--muted); }
+.meta {
+  width: 208px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: rgba(238, 242, 247, 0.38);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
 
-#loader p { margin: 0; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(243, 245, 248, 0.35); }
+/* ---------------- móvil ---------------- */
 
-@media (max-width: 640px) {
-  .card { padding: 10px 12px; }
-  .card h1 { font-size: 13px; }
-  .bar-ui { bottom: 14px; padding: 6px; gap: 6px; }
-  .bar-ui button { padding: 8px 12px; font-size: 11.5px; }
-  #stats { display: none; }
+@media (max-width: 720px) {
+  .brand { top: 14px; left: 14px; padding: 8px 12px 8px 10px; }
+  .brand strong { font-size: 11.5px; letter-spacing: 0.16em; }
+  .brand small { font-size: 9.5px; }
+  .clock { top: 14px; right: 14px; font-size: 10px; padding: 6px 11px; }
+  .dock {
+    bottom: 14px;
+    left: 14px;
+    right: 14px;
+    transform: none;
+    justify-content: center;
+    flex-wrap: wrap;
+    border-radius: 18px;
+  }
+  .dock button { padding: 8px 11px; font-size: 11.5px; }
+  #hint { display: none; }
+  .cesium-widget-credits { font-size: 9px !important; }
 }

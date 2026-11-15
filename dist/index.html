@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0b0f14" />
+  <title>UNICENTRO · Bogotá · Visor arquitectónico</title>
+  <script type="module" crossorigin src="/HLF/assets/index-DJTn4TUR.js"></script>
+  <link rel="modulepreload" crossorigin href="/HLF/assets/cesium-7_9PnROu.js">
+  <link rel="stylesheet" crossorigin href="/HLF/assets/index-wE3XyxHu.css">
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+
+  <header class="brand">
+    <span class="mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M12 2.6 21 7.4v9.2L12 21.4 3 16.6V7.4z" />
+        <path d="M3 7.4 12 12.2l9-4.8M12 12.2v9.2" />
+      </svg>
+    </span>
+    <span class="text">
+      <strong>UNICENTRO</strong>
+      <small>Bogotá · La Fontana</small>
+    </span>
+  </header>
+
+  <div class="clock">
+    <span id="clockLabel">10:10</span>
+  </div>
+
+  <div id="hint">
+    Arrastra para orbitar · Rueda para acercar · Clic para fijar el pivote · Doble clic para enfocar
+  </div>
+
+  <nav class="dock">
+    <div class="group" role="group" aria-label="Hora del día">
+      <button data-light="dia" class="on">Día</button>
+      <button data-light="tarde">Tarde</button>
+      <button data-light="noche">Noche</button>
+    </div>
+    <span class="sep" aria-hidden="true"></span>
+    <div class="group" role="group" aria-label="Vistas">
+      <button id="btnAerial">Aérea</button>
+      <button id="btnPedestrian">Peatonal</button>
+      <button id="btnHome">Vista general</button>
+    </div>
+  </nav>
+
+  <div id="loading">
+    <div class="inner">
+      <div class="ring"></div>
+      <h2>Unicentro · Bogotá</h2>
+      <div class="track"><div id="loadBar"></div></div>
+      <div class="meta">
+        <span id="loadLabel">Iniciando</span>
+        <span id="loadPct">0%</span>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

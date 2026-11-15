@@ -211,7 +211,16 @@ export async function loadSite(
           if (req) {
             try {
               const img = (await req) as CanvasImageSource;
-              ctx.drawImage(img, (x - a.x) * size, (y - a.y) * size, size, size);
+              // Cesium entrega las teselas como ImageBitmap invertido en vertical (listo para textura): se endereza al dibujar
+              const px = (x - a.x) * size;
+              const py = (y - a.y) * size;
+              if (typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap) {
+                ctx.save();
+                ctx.translate(px, py + size);
+                ctx.scale(1, -1);
+                ctx.drawImage(img, 0, 0, size, size);
+                ctx.restore();
+              } else ctx.drawImage(img, px, py, size, size);
             } catch { /* tile sin imagen: queda el gris de fondo */ }
             return;
           }
@@ -229,6 +238,7 @@ export async function loadSite(
       const blob = await new Promise<Blob | null>((r) => out.toBlob(r, 'image/jpeg', 0.92));
       if (!blob) return;
       const url = URL.createObjectURL(blob);
+      (window as unknown as { __AERIAL_URL__?: string }).__AERIAL_URL__ = url;
       const rw = ts.tileXYToRectangle(a.x, a.y, LEVEL);
       const re = ts.tileXYToRectangle(b.x, b.y, LEVEL);
       const toEnu = (lon: number, lat: number) =>

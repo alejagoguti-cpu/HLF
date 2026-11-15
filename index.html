@@ -1,52 +1,59 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>UNICENTRO · Visor 3D</title>
-<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-<link rel="stylesheet" href="./src/style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>UNICENTRO · Bogotá · Visor 3D</title>
+  <link rel="stylesheet" href="./src/style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
 </head>
 <body>
   <canvas id="scene"></canvas>
 
-  <div id="loader">
-    <div class="loader-inner">
-      <div class="loader-mark">U</div>
-      <div class="loader-title">UNICENTRO</div>
-      <div class="loader-sub">Cargando escena</div>
-      <div class="loader-bar"><div class="loader-bar-fill" id="bar"></div></div>
-      <div class="loader-pct" id="pct">0%</div>
+  <header class="card">
+    <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <path d="M12 2 21 7v10l-9 5-9-5V7z" />
+      <path d="M3 7l9 5 9-5M12 12v10" />
+    </svg>
+    <div>
+      <h1>UNICENTRO</h1>
+      <p>Bogotá · contexto andino</p>
     </div>
-  </div>
-
-  <header id="hud">
-    <div class="brand">
-      <span class="brand-dot"></span>
-      <span class="brand-name">UNICENTRO</span>
-      <span class="brand-tag">Visor 3D · Bogotá</span>
-    </div>
-    <nav class="tools">
-      <button id="btn-home" title="Vista general">Vista general</button>
-      <button id="btn-sun" title="Cambiar hora del día">Hora</button>
-      <button id="btn-fly" title="Modo vuelo (WASD)">Vuelo</button>
-    </nav>
   </header>
 
-  <div id="hint">
-    <kbd>Arrastrar</kbd> orbitar · <kbd>Rueda</kbd> acercar · <kbd>W A S D</kbd> avanzar · <kbd>Q E</kbd> altura · <kbd>Shift</kbd> rápido
+  <div class="clock">
+    <span id="sun-label">Día</span>
   </div>
+
+  <footer class="bar-ui">
+    <div class="group">
+      <button data-time="dia" class="on">Día</button>
+      <button data-time="tarde">Tarde</button>
+      <button data-time="noche">Noche</button>
+    </div>
+    <div class="group">
+      <button id="btn-home">Vista general</button>
+    </div>
+  </footer>
 
   <div id="stats"></div>
 
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
-    }
-  }
-  </script>
+  <div id="loader">
+    <div class="loader-inner">
+      <div class="spinner"></div>
+      <div class="track"><div id="bar"></div></div>
+      <div id="pct">0%</div>
+      <p>Cargando escena</p>
+    </div>
+  </div>
+
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>

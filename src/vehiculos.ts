@@ -2,18 +2,47 @@ import * as Cesium from 'cesium';
 import { ASSETS } from './config';
 
 /**
- * Tráfico: carros que recorren las vías modeladas.
- *
- * No hay ejes viales: cada carro se guía por un campo de distancia al borde de
- * calzada (secciones/vias_campo.bin, rasterizado de la malla de vías). Avanza
- * manteniéndose a un carril del borde derecho y, en los cruces, sigue por donde
- * la calzada continúa.
+ * Tráfico y peatones: vehículos suaves (sedán, SUV, taxi) sin colisiones,
+ * semáforos reales en intersecciones y personas (con y sin perro) por los andenes.
  */
 
 interface Campo { cell: number; x0: number; y0: number; w: number; h: number }
-interface Carro { e: number; n: number; th: number; v: number; model: Cesium.Model | null; u: number }
+interface Carro {
+  e: number;
+  n: number;
+  th: number;
+  v: number;
+  vActual: number;
+  model: Cesium.Model | null;
+  u: number;
+  tipo: 'sedan' | 'suv' | 'taxi';
+}
+interface Peaton {
+  e: number;
+  n: number;
+  th: number;
+  v: number;
+  model: Cesium.Model | null;
+  u: number;
+  conPerro: boolean;
+}
+interface Semaforo {
+  e: number;
+  n: number;
+  u: number;
+  faseOffset: number;
+  nsLuz: Cesium.Entity;
+  ewLuz: Cesium.Entity;
+  nsEstado: 'green' | 'yellow' | 'red';
+  ewEstado: 'green' | 'yellow' | 'red';
+}
 
-const COLORES = ['#e9e9e6', '#d8d9db', '#1f2124', '#2a2d33', '#8c9197', '#b8bcc0', '#7a1f1c', '#27405f', '#f1c40f', '#c9c2b4', '#3b4a3f', '#a33b2a'];
+const COLORES = [
+  '#e9e9e6', '#d8d9db', '#272a30', '#4b5563',
+  '#8c9197', '#b8bcc0', '#7a1f1c', '#27405f',
+  '#c9c2b4', '#3b4a3f', '#a33b2a',
+];
+const COLORES_ROPA = ['#2b4c7e', '#991b1b', '#1f2937', '#3f6212', '#7c2d12', '#475569', '#d97706', '#f3f4f6'];
 const CARRIL = 3.2;
 
 export interface Trafico {
@@ -23,7 +52,11 @@ export interface Trafico {
   debug(): number[][];
 }
 
-export async function createTrafico(viewer: Cesium.Viewer, matrix: Cesium.Matrix4, total = 150): Promise<Trafico | null> {
+export async function createTrafico(
+  viewer: Cesium.Viewer,
+  matrix: Cesium.Matrix4,
+  total = 110,
+): Promise<Trafico | null> {
   const base = ASSETS.secciones;
   let campo: Campo;
   let dist: Uint8Array;
@@ -38,7 +71,6 @@ export async function createTrafico(viewer: Cesium.Viewer, matrix: Cesium.Matrix
   }
   const { cell, x0, y0, w, h } = campo;
 
-  /** distancia al borde de calzada en metros (0 fuera de la vía), con interpolación bilineal */
   const d = (e: number, n: number): number => {
     const fx = (e - x0) / cell - 0.5;
     const fy = (n - y0) / cell - 0.5;
@@ -50,98 +82,264 @@ export async function createTrafico(viewer: Cesium.Viewer, matrix: Cesium.Matrix
     const i = iy * w + ix;
     return ((dist[i] * (1 - tx) + dist[i + 1] * tx) * (1 - ty) + (dist[i + w] * (1 - tx) + dist[i + w + 1] * tx) * ty) * 0.5;
   };
+
   const alt = (e: number, n: number): number => {
     const ix = Math.max(0, Math.min(w - 1, Math.floor((e - x0) / cell)));
     const iy = Math.max(0, Math.min(h - 1, Math.floor((n - y0) / cell)));
     return cota[iy * w + ix] * 0.1 - 2;
   };
 
-  // celdas de calzada donde cabe un carro en su carril
+  // Celdas de calzada y celdas de andén (adyacentes a la vía)
   const libres: number[] = [];
-  // el tráfico se concentra a 520 m del hotel, que es lo que se mira
-  for (let i = 0; i < dist.length; i++) {
-    if (dist[i] * 0.5 < 2.6 || dist[i] * 0.5 > 5) continue;
-    const e = x0 + ((i % w) + 0.5) * cell;
-    const n = y0 + (Math.floor(i / w) + 0.5) * cell;
-    if (Math.hypot(e + 180, n - 250) < 520) libres.push(i);
+  const andenes: number[] = [];
+  const crucesCandidatos: Array<{ e: number; n: number; d: number }> = [];
+
+  for (let iy = 2; iy < h - 2; iy++) {
+    for (let ix = 2; ix < w - 2; ix++) {
+      const i = iy * w + ix;
+      const e = x0 + (ix + 0.5) * cell;
+      const n = y0 + (iy + 0.5) * cell;
+      const distCentro = Math.hypot(e + 180, n - 250);
+      if (distCentro > 520) continue;
+
+      const dm = dist[i] * 0.5;
+      if (dm >= 2.6 && dm <= 5.0) libres.push(i);
+      if (dm >= 6.0 && distCentro < 460) crucesCandidatos.push({ e, n, d: dm });
+
+      // Andén: fuera de calzada (dist == 0) pero a 1-2 celdas de la vía
+      if (dist[i] === 0 && distCentro < 430) {
+        let cercaVia = false;
+        for (let dy = -2; dy <= 2 && !cercaVia; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            if (dist[(iy + dy) * w + (ix + dx)] > 0) {
+              cercaVia = true;
+              break;
+            }
+          }
+        }
+        if (cercaVia) andenes.push(i);
+      }
+    }
   }
   if (!libres.length) return null;
 
-  const rnd = (() => { let s = 12345; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); })();
+  // Seleccionar hasta 6 intersecciones principales separadas por >= 90 m para semáforos
+  crucesCandidatos.sort((a, b) => b.d - a.d);
+  const semaforos: Semaforo[] = [];
+  const localToWorld = (e: number, n: number, u: number) =>
+    Cesium.Matrix4.multiplyByPoint(matrix, new Cesium.Cartesian3(e, n, u), new Cesium.Cartesian3());
+
+  for (const c of crucesCandidatos) {
+    if (semaforos.length >= 6) break;
+    if (semaforos.some((s) => Math.hypot(s.e - c.e, s.n - c.n) < 90)) continue;
+    const u = alt(c.e, c.n);
+    const pe = c.e + 6.5;
+    const pn = c.n + 6.5;
+    const pu = alt(pe, pn);
+
+    viewer.entities.add({
+      position: localToWorld(pe, pn, pu + 2.4),
+      cylinder: {
+        length: 4.8,
+        topRadius: 0.11,
+        bottomRadius: 0.14,
+        material: Cesium.Color.fromCssColorString('#242933'),
+      },
+    });
+    const nsLuz = viewer.entities.add({
+      position: localToWorld(pe - 0.6, pn, pu + 4.5),
+      box: {
+        dimensions: new Cesium.Cartesian3(0.45, 0.45, 1.05),
+        material: Cesium.Color.LIME,
+      },
+    });
+    const ewLuz = viewer.entities.add({
+      position: localToWorld(pe, pn - 0.6, pu + 4.5),
+      box: {
+        dimensions: new Cesium.Cartesian3(0.45, 0.45, 1.05),
+        material: Cesium.Color.RED,
+      },
+    });
+
+    semaforos.push({
+      e: c.e,
+      n: c.n,
+      u,
+      faseOffset: semaforos.length * 4.5,
+      nsLuz,
+      ewLuz,
+      nsEstado: 'green',
+      ewEstado: 'red',
+    });
+  }
+
+  const rnd = (() => {
+    let s = 12345;
+    return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+  })();
+
+  const carros: Carro[] = [];
+  const demasiadoCerca = (e: number, n: number, excluir?: Carro) =>
+    carros.some((o) => o !== excluir && Math.hypot(o.e - e, o.n - n) < 8.5);
+
   const spawn = (c: Carro): void => {
-    for (let k = 0; k < 30; k++) {
+    for (let k = 0; k < 45; k++) {
       const i = libres[Math.floor(rnd() * libres.length)];
-      c.e = x0 + ((i % w) + 0.5) * cell;
-      c.n = y0 + (Math.floor(i / w) + 0.5) * cell;
-      // orientación: a lo largo de la vía (donde la distancia al borde cambia menos), con el borde a la derecha
+      const ce = x0 + ((i % w) + 0.5) * cell;
+      const cn = y0 + (Math.floor(i / w) + 0.5) * cell;
+      if (demasiadoCerca(ce, cn, c)) continue;
+
       let best = 0;
       let bestS = -1e9;
       for (let a = 0; a < 16; a++) {
         const th = (a / 16) * Math.PI * 2;
-        const ahead = d(c.e + Math.cos(th) * 10, c.n + Math.sin(th) * 10);
-        const right = d(c.e + Math.sin(th) * 2.5, c.n - Math.cos(th) * 2.5);
-        const left = d(c.e - Math.sin(th) * 2.5, c.n + Math.cos(th) * 2.5);
+        const ahead = d(ce + Math.cos(th) * 10, cn + Math.sin(th) * 10);
+        const right = d(ce + Math.sin(th) * 2.5, cn - Math.cos(th) * 2.5);
+        const left = d(ce - Math.sin(th) * 2.5, cn + Math.cos(th) * 2.5);
         const s = -Math.abs(ahead - CARRIL) + (left > right ? 1.5 : 0);
         if (ahead > 1.5 && s > bestS) { bestS = s; best = th; }
       }
-      if (bestS > -1e8) { c.th = best; return; }
+      if (bestS > -1e8) {
+        c.e = ce;
+        c.n = cn;
+        c.th = best;
+        c.vActual = c.v * 0.5;
+        return;
+      }
     }
   };
 
-  const carros: Carro[] = [];
   for (let i = 0; i < total; i++) {
-    const c: Carro = { e: 0, n: 0, th: 0, v: 7 + rnd() * 6, model: null, u: 0 };
+    const r = rnd();
+    const tipo: Carro['tipo'] = r < 0.2 ? 'taxi' : r < 0.48 ? 'suv' : 'sedan';
+    const c: Carro = { e: 0, n: 0, th: 0, v: 6.5 + rnd() * 5.0, vActual: 0, model: null, u: 0, tipo };
     spawn(c);
     carros.push(c);
+  }
+
+  // Peatones: ~35% paseando perro, ~65% caminando solos
+  const peatones: Peaton[] = [];
+  if (andenes.length > 0) {
+    for (let i = 0; i < 42; i++) {
+      const idx = andenes[Math.floor(rnd() * andenes.length)];
+      const pe = x0 + ((idx % w) + 0.5) * cell;
+      const pn = y0 + (Math.floor(idx / w) + 0.5) * cell;
+      peatones.push({
+        e: pe,
+        n: pn,
+        th: rnd() * Math.PI * 2,
+        v: 1.15 + rnd() * 0.45,
+        model: null,
+        u: alt(pe, pn) + 0.16,
+        conPerro: i % 3 === 0,
+      });
+    }
   }
 
   const scratchT = new Cesium.Cartesian3();
   const scratchR = new Cesium.Matrix3();
   const scratchL = new Cesium.Matrix4();
-  const place = (c: Carro): void => {
-    if (!c.model) return;
-    Cesium.Cartesian3.fromElements(c.e, c.n, c.u + 0.03, scratchT);
-    Cesium.Matrix3.fromRotationZ(c.th, scratchR);
+
+  const place = (obj: { e: number; n: number; u: number; th: number; model: Cesium.Model | null }, zOff = 0.03): void => {
+    if (!obj.model) return;
+    Cesium.Cartesian3.fromElements(obj.e, obj.n, obj.u + zOff, scratchT);
+    Cesium.Matrix3.fromRotationZ(obj.th, scratchR);
     Cesium.Matrix4.fromRotationTranslation(scratchR, scratchT, scratchL);
-    c.model.modelMatrix = Cesium.Matrix4.multiply(matrix, scratchL, new Cesium.Matrix4());
+    obj.model.modelMatrix = Cesium.Matrix4.multiply(matrix, scratchL, new Cesium.Matrix4());
   };
 
-  // los modelos entran de a pocos para no frenar la carga
+  // Cargar vehículos suaves y personas (con y sin perro)
   (async () => {
     for (let i = 0; i < carros.length; i++) {
+      const c = carros[i];
+      const glb = c.tipo === 'taxi' ? 'carro_taxi.glb' : c.tipo === 'suv' ? 'carro_suv.glb' : 'carro.glb';
       try {
         const model = await Cesium.Model.fromGltfAsync({
-          url: base + 'carro.glb',
+          url: base + glb,
           upAxis: Cesium.Axis.Y,
           forwardAxis: Cesium.Axis.X,
           shadows: Cesium.ShadowMode.ENABLED,
-          color: Cesium.Color.fromCssColorString(COLORES[i % COLORES.length]),
-          colorBlendMode: Cesium.ColorBlendMode.HIGHLIGHT,
+          color: c.tipo === 'taxi' ? Cesium.Color.WHITE : Cesium.Color.fromCssColorString(COLORES[i % COLORES.length]),
+          colorBlendMode: Cesium.ColorBlendMode.MIX,
+          colorBlendAmount: c.tipo === 'taxi' ? 0 : 0.28,
         });
         viewer.scene.primitives.add(model);
-        carros[i].model = model;
-        carros[i].u = alt(carros[i].e, carros[i].n);
-        place(carros[i]);
+        c.model = model;
+        c.u = alt(c.e, c.n);
+        place(c);
       } catch {
         /* sin carro */
       }
-      if (i % 8 === 7) await new Promise((r) => setTimeout(r, 40));
+      if (i % 6 === 5) await new Promise((r) => setTimeout(r, 35));
+    }
+
+    for (let i = 0; i < peatones.length; i++) {
+      const p = peatones[i];
+      try {
+        const model = await Cesium.Model.fromGltfAsync({
+          url: base + (p.conPerro ? 'persona_perro.glb' : 'persona.glb'),
+          upAxis: Cesium.Axis.Y,
+          forwardAxis: Cesium.Axis.X,
+          shadows: Cesium.ShadowMode.ENABLED,
+          color: Cesium.Color.fromCssColorString(COLORES_ROPA[i % COLORES_ROPA.length]),
+          colorBlendMode: Cesium.ColorBlendMode.MIX,
+          colorBlendAmount: 0.25,
+        });
+        viewer.scene.primitives.add(model);
+        p.model = model;
+        place(p, 0.0);
+      } catch {
+        /* sin peatón */
+      }
+      if (i % 6 === 5) await new Promise((r) => setTimeout(r, 35));
     }
   })();
 
   let visible = true;
+  let tiempo = 0;
+  const esAnden = (e: number, n: number) => d(e, n) === 0 && d(e + 4, n) + d(e - 4, n) + d(e, n + 4) + d(e, n - 4) > 0.5;
+
   return {
     count: total,
     debug: () => carros.map((c) => [Math.round(c.e), Math.round(c.n), +c.u.toFixed(1), c.model ? 1 : 0]),
     setVisible(v: boolean) {
       visible = v;
       for (const c of carros) if (c.model) c.model.show = v;
+      for (const p of peatones) if (p.model) p.model.show = v;
+      for (const s of semaforos) {
+        s.nsLuz.show = v;
+        s.ewLuz.show = v;
+      }
     },
     update(dt: number) {
       if (!visible) return;
-      for (const c of carros) {
+      const stepDt = Math.min(0.08, Math.max(0.001, dt));
+      tiempo += stepDt;
+
+      // Actualizar ciclo de semáforos (24 s: 10s verde, 2s amarillo, 12s rojo)
+      for (const s of semaforos) {
+        const cyc = (tiempo + s.faseOffset) % 24;
+        const ns: Semaforo['nsEstado'] = cyc < 10 ? 'green' : cyc < 12 ? 'yellow' : 'red';
+        const ew: Semaforo['ewEstado'] = cyc >= 12 && cyc < 22 ? 'green' : cyc >= 22 ? 'yellow' : 'red';
+        if (ns !== s.nsEstado) {
+          s.nsEstado = ns;
+          (s.nsLuz.box!.material as Cesium.ColorMaterialProperty).color = new Cesium.ConstantProperty(
+            ns === 'green' ? Cesium.Color.LIME : ns === 'yellow' ? Cesium.Color.YELLOW : Cesium.Color.RED,
+          );
+        }
+        if (ew !== s.ewEstado) {
+          s.ewEstado = ew;
+          (s.ewLuz.box!.material as Cesium.ColorMaterialProperty).color = new Cesium.ConstantProperty(
+            ew === 'green' ? Cesium.Color.LIME : ew === 'yellow' ? Cesium.Color.YELLOW : Cesium.Color.RED,
+          );
+        }
+      }
+
+      // Actualizar vehículos con seguimiento (sin choques) y respeto a semáforos
+      for (let idx = 0; idx < carros.length; idx++) {
+        const c = carros[idx];
         if (!c.model) continue;
-        // dirección: entre varias opciones, la que mantiene el carril y no se sale de la vía
+
         let best = 0;
         let bestS = -1e9;
         for (let k = -4; k <= 4; k++) {
@@ -158,18 +356,77 @@ export async function createTrafico(viewer: Cesium.Viewer, matrix: Cesium.Matrix
           const s = -Math.abs(Math.min(ahead, 6) - CARRIL) - Math.abs(dth) * 1.6 + (left >= right ? 0.6 : 0);
           if (s > bestS) { bestS = s; best = dth; }
         }
+
         if (bestS < -1e8 || Math.hypot(c.e + 180, c.n - 250) > 600) {
-          spawn(c); // callejón sin salida o borde del modelo: reaparece en otra vía
+          spawn(c);
           c.u = alt(c.e, c.n);
           place(c);
           continue;
         }
-        c.th += Math.max(-1.4 * dt, Math.min(1.4 * dt, best));
+
+        const cosTh = Math.cos(c.th);
+        const sinTh = Math.sin(c.th);
+        let factorVel = 1.0;
+
+        // 1. Evitar choques con carros adelante
+        for (let j = 0; j < carros.length; j++) {
+          if (j === idx || !carros[j].model) continue;
+          const o = carros[j];
+          const dx = o.e - c.e;
+          const dy = o.n - c.n;
+          const distSq = dx * dx + dy * dy;
+          if (distSq > 225) continue;
+          const fwd = dx * cosTh + dy * sinTh;
+          const lat = Math.abs(-dx * sinTh + dy * cosTh);
+          if (fwd > 0 && fwd < 12.5 && lat < 2.35) {
+            const f = fwd < 6.4 ? 0 : (fwd - 6.4) / 6.1;
+            if (f < factorVel) factorVel = f;
+          } else if (distSq < 22 && j < idx) {
+            factorVel = 0;
+          }
+        }
+
+        // 2. Frenar ante semáforo en rojo o amarillo
+        const esEW = Math.abs(cosTh) > Math.abs(sinTh);
+        for (const s of semaforos) {
+          const estado = esEW ? s.ewEstado : s.nsEstado;
+          if (estado === 'green') continue;
+          const dx = s.e - c.e;
+          const dy = s.n - c.n;
+          const fwd = dx * cosTh + dy * sinTh;
+          const lat = Math.abs(-dx * sinTh + dy * cosTh);
+          if (fwd > 7.0 && fwd < 21.0 && lat < 9.0) {
+            const f = fwd < 10.5 ? 0 : (fwd - 10.5) / 10.5;
+            if (f < factorVel) factorVel = f;
+          }
+        }
+
         const slow = 1 - Math.min(0.55, Math.abs(best) * 1.4);
-        c.e += Math.cos(c.th) * c.v * slow * dt;
-        c.n += Math.sin(c.th) * c.v * slow * dt;
-        c.u += (alt(c.e, c.n) - c.u) * Math.min(1, dt * 6);
+        const vObjetivo = c.v * slow * factorVel;
+        c.vActual += (vObjetivo - c.vActual) * Math.min(1, stepDt * 4.5);
+
+        if (c.vActual > 0.05) {
+          c.th += Math.max(-1.4 * stepDt, Math.min(1.4 * stepDt, best));
+          c.e += Math.cos(c.th) * c.vActual * stepDt;
+          c.n += Math.sin(c.th) * c.vActual * stepDt;
+          c.u += (alt(c.e, c.n) - c.u) * Math.min(1, stepDt * 6);
+        }
         place(c);
+      }
+
+      // Actualizar peatones (con y sin perro) sobre andenes
+      for (const p of peatones) {
+        if (!p.model) continue;
+        const nx = p.e + Math.cos(p.th) * p.v * stepDt;
+        const ny = p.n + Math.sin(p.th) * p.v * stepDt;
+        if (esAnden(nx, ny) && Math.hypot(nx + 180, ny - 250) < 430) {
+          p.e = nx;
+          p.n = ny;
+          p.u += (alt(p.e, p.n) + 0.16 - p.u) * Math.min(1, stepDt * 4);
+        } else {
+          p.th += 0.9 + rnd() * 1.2;
+        }
+        place(p, 0.0);
       }
     },
   };

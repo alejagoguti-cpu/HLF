@@ -1,29 +1,158 @@
-/** Carro de baja carga para el tráfico: carrocería, cabina con vidrios y ruedas. Eje +X = frente, Y = arriba, metros. */
-import { Glb } from './glb-writer.mjs';
-const P = [], N = [], C = [], I = [];
-function box(x0, x1, y0, y1, z0, z1, col, taper = 0) {
-  // taper: la cara superior se encoge en X (parabrisas inclinado)
-  const v = [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [x0 + taper, y1, z0 + taper * 0.2], [x1 - taper * 0.7, y1, z0 + taper * 0.2], [x1 - taper * 0.7, y1, z1 - taper * 0.2], [x0 + taper, y1, z1 - taper * 0.2]];
-  const faces = [[0, 1, 2, 3], [7, 6, 5, 4], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]];
-  for (const f of faces) {
-    const a = v[f[0]], b = v[f[1]], c = v[f[2]];
-    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-    let n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
-    const l = Math.hypot(...n) || 1; n = n.map((k) => -k / l);
-    const base = P.length / 3;
-    for (const i of f) { P.push(...v[i]); N.push(...n); C.push(...col); }
-    I.push(base, base + 2, base + 1, base, base + 3, base + 2);
+/**
+ * Genera modelos 3D procedurales suaves (sin bloques low-poly) para tráfico y peatones:
+ *   - public/secciones/carro.glb         (sedán detallado)
+ *   - public/secciones/carro_suv.glb     (SUV detallada)
+ *   - public/secciones/carro_taxi.glb    (taxi Bogotá amarillo con letrero)
+ *   - public/secciones/persona_perro.glb (peatón paseando perro con correa)
+ *   - public/secciones/persona.glb       (peatón caminando sin perro)
+ *
+ * Convención de ejes: +X = frente, +Y = arriba (coincide con Cesium upAxis: Y, forwardAxis: X).
+ */
+import { writeFileSync, copyFileSync } from 'node:fs';
+import * as THREE from 'three';
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import {
+  CONSTRUCTORES,
+  crearMateriales,
+} from '../../.gemini/antigravity/scratch/vehiculos-colombia/vehiculos.js';
+
+globalThis.FileReader = class {
+  readAsArrayBuffer(blob) {
+    blob.arrayBuffer().then((buf) => {
+      this.result = buf;
+      this.onloadend?.();
+      this.onload?.({ target: this });
+    });
   }
+};
+
+const exporter = new GLTFExporter();
+const mats = crearMateriales();
+
+async function exportGroup(group, outName) {
+  // Girar +Z (frente en vehiculos.js) -> +X (frente esperado por Cesium en vehiculos.ts)
+  group.rotation.y = Math.PI / 2;
+  group.updateMatrixWorld(true);
+  const buf = await exporter.parseAsync(group, { binary: true });
+  const bytes = new Uint8Array(buf);
+  writeFileSync(`public/secciones/${outName}`, bytes);
+  copyFileSync(`public/secciones/${outName}`, `docs/secciones/${outName}`);
+  console.log(outName, bytes.byteLength, 'bytes');
 }
-const BODY = [255, 255, 255, 255], GLASS = [28, 34, 40, 255], DARK = [22, 22, 24, 255], LIGHT = [250, 245, 225, 255], RED = [170, 30, 25, 255];
-box(-2.15, 2.15, 0.32, 0.92, -0.88, 0.88, BODY, 0.06);          // carrocería
-box(-1.35, 0.95, 0.92, 1.42, -0.80, 0.80, GLASS, 0.34);         // cabina (vidrios)
-box(-0.95, 0.45, 1.40, 1.45, -0.70, 0.70, BODY);                 // techo
-for (const x of [-1.35, 1.35]) for (const z of [-0.90, 0.72]) box(x - 0.34, x + 0.34, 0.0, 0.66, z, z + 0.18, DARK); // ruedas
-box(2.13, 2.17, 0.58, 0.74, -0.80, -0.42, LIGHT); box(2.13, 2.17, 0.58, 0.74, 0.42, 0.80, LIGHT);   // faros
-box(-2.17, -2.13, 0.62, 0.78, -0.82, -0.40, RED); box(-2.17, -2.13, 0.62, 0.78, 0.40, 0.82, RED);  // stops
-const g = new Glb();
-g.j.materials.push({ name: 'carro', pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0.2, roughnessFactor: 0.45 } });
-g.j.meshes.push({ name: 'carro', primitives: [{ attributes: { POSITION: g.acc(new Float32Array(P), 'VEC3', { target: 34962, minmax: true }), NORMAL: g.acc(new Float32Array(N), 'VEC3', { target: 34962 }), COLOR_0: g.acc(new Uint8Array(C), 'VEC4', { target: 34962, normalized: true }) }, indices: g.acc(new Uint16Array(I), 'SCALAR', { target: 34963 }), material: 0 }] });
-g.j.nodes.push({ name: 'carro', mesh: 0 }); g.j.scenes[0].nodes.push(0);
-console.log('carro.glb', g.write('public/secciones/carro.glb'), 'bytes');
+
+function buildVehicleGroup(tipo) {
+  const geoms = CONSTRUCTORES[tipo](0);
+  const group = new THREE.Group();
+  for (const [matKey, geo] of Object.entries(geoms)) {
+    const mat = mats[matKey].clone();
+    if (matKey === 'body' && tipo === 'taxi') {
+      mat.color.setHex(0xf5b800);
+    }
+    group.add(new THREE.Mesh(geo, mat));
+  }
+  return group;
+}
+
+function buildPersona({ conPerro = true } = {}) {
+  const group = new THREE.Group();
+
+  const matPiel = new THREE.MeshStandardMaterial({ color: 0xe0ac8b, roughness: 0.65 });
+  const matChaqueta = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.72 });
+  const matPantalon = new THREE.MeshStandardMaterial({ color: 0x1e242e, roughness: 0.8 });
+  const matPelo = new THREE.MeshStandardMaterial({ color: 0x231b15, roughness: 0.85 });
+  const matPerro = new THREE.MeshStandardMaterial({ color: 0xc28547, roughness: 0.78 });
+  const matCorrea = new THREE.MeshStandardMaterial({ color: 0xd93829, roughness: 0.5 });
+
+  // Persona (centrada en X = -0.22 si lleva perro, o X = 0 si va sola, mirando hacia +Z)
+  const px = conPerro ? -0.22 : 0;
+  // Piernas
+  for (const [lx, rz] of [[-0.08, 0.14], [0.08, -0.14]]) {
+    const pierna = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.66, 6, 10), matPantalon);
+    pierna.position.set(px + lx, 0.42, rz * 0.6);
+    pierna.rotation.x = rz;
+    group.add(pierna);
+  }
+  // Torso
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.42, 8, 12), matChaqueta);
+  torso.position.set(px, 1.06, 0);
+  torso.scale.set(1.15, 1, 0.72);
+  group.add(torso);
+
+  // Cabeza y cabello
+  const cabeza = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 12), matPiel);
+  cabeza.position.set(px, 1.48, 0.02);
+  group.add(cabeza);
+  const pelo = new THREE.Mesh(new THREE.SphereGeometry(0.115, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.58), matPelo);
+  pelo.position.set(px, 1.5, 0.0);
+  group.add(pelo);
+
+  // Brazos
+  const brazoIzq = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.42, 6, 8), matChaqueta);
+  brazoIzq.position.set(px - 0.18, 1.04, -0.04);
+  brazoIzq.rotation.x = -0.15;
+  group.add(brazoIzq);
+
+  const brazoDer = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.42, 6, 8), matChaqueta);
+  if (conPerro) {
+    brazoDer.position.set(px + 0.18, 0.98, 0.14);
+    brazoDer.rotation.x = 0.55;
+    brazoDer.rotation.z = -0.18;
+  } else {
+    brazoDer.position.set(px + 0.18, 1.04, 0.05);
+    brazoDer.rotation.x = 0.15;
+  }
+  group.add(brazoDer);
+
+  if (conPerro) {
+    const dx = 0.34;
+    const dz = 0.42;
+    const cuerpoPerro = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.36, 8, 12), matPerro);
+    cuerpoPerro.rotation.x = Math.PI / 2;
+    cuerpoPerro.position.set(dx, 0.34, dz);
+    group.add(cuerpoPerro);
+
+    const cabezaPerro = new THREE.Mesh(new THREE.SphereGeometry(0.095, 12, 10), matPerro);
+    cabezaPerro.position.set(dx, 0.48, dz + 0.24);
+    group.add(cabezaPerro);
+
+    const hocico = new THREE.Mesh(new THREE.CapsuleGeometry(0.04, 0.08, 6, 8), matPerro);
+    hocico.rotation.x = Math.PI / 2;
+    hocico.position.set(dx, 0.45, dz + 0.33);
+    group.add(hocico);
+
+    for (const sx of [-0.07, 0.07]) {
+      const oreja = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.07, 4, 6), matPelo);
+      oreja.position.set(dx + sx, 0.51, dz + 0.22);
+      oreja.rotation.z = sx * 4;
+      group.add(oreja);
+    }
+    const cola = new THREE.Mesh(new THREE.CapsuleGeometry(0.022, 0.18, 4, 6), matPerro);
+    cola.position.set(dx, 0.44, dz - 0.25);
+    cola.rotation.x = -0.6;
+    group.add(cola);
+
+    for (const lx of [-0.06, 0.06]) {
+      for (const lz of [-0.14, 0.14]) {
+        const pata = new THREE.Mesh(new THREE.CapsuleGeometry(0.026, 0.22, 4, 8), matPerro);
+        pata.position.set(dx + lx, 0.14, dz + lz);
+        group.add(pata);
+      }
+    }
+
+    const pMano = new THREE.Vector3(px + 0.2, 0.78, 0.28);
+    const pCuello = new THREE.Vector3(dx, 0.44, dz + 0.18);
+    const dir = new THREE.Vector3().subVectors(pCuello, pMano);
+    const correa = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, dir.length(), 6), matCorrea);
+    correa.position.copy(pMano).add(pCuello).multiplyScalar(0.5);
+    correa.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+    group.add(correa);
+  }
+
+  return group;
+}
+
+await exportGroup(buildVehicleGroup('sedan'), 'carro.glb');
+await exportGroup(buildVehicleGroup('suv'), 'carro_suv.glb');
+await exportGroup(buildVehicleGroup('taxi'), 'carro_taxi.glb');
+await exportGroup(buildPersona({ conPerro: true }), 'persona_perro.glb');
+await exportGroup(buildPersona({ conPerro: false }), 'persona.glb');

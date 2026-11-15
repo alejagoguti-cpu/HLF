@@ -422,6 +422,115 @@ export function cityShader(): Cesium.CustomShader {
 /**
  * Etalonaje final estilo Unreal (contraste fílmico, temperatura por hora y viñeta sutil).
  */
+/**
+ * Cielo andino y nubes volumétricas procedurales sobre el fondo del cielo (depth >= 0.99995).
+ */
+export function skyStage(east: Cesium.Cartesian3, north: Cesium.Cartesian3, up: Cesium.Cartesian3): Cesium.PostProcessStage {
+  return new Cesium.PostProcessStage({
+    name: 'hlf_sky',
+    uniforms: {
+      uNight: 0.0,
+      uTarde: 0.0,
+      uTime: 0.0,
+      uEast: east,
+      uNorth: north,
+      uUp: up,
+    },
+    fragmentShader: `
+      uniform sampler2D colorTexture;
+      uniform sampler2D depthTexture;
+      uniform float uNight;
+      uniform float uTarde;
+      uniform float uTime;
+      uniform vec3 uEast;
+      uniform vec3 uNorth;
+      uniform vec3 uUp;
+      in vec2 v_textureCoordinates;
+
+      float sh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float sn(vec2 p) {
+        vec2 i = floor(p); vec2 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(sh(i), sh(i + vec2(1.0, 0.0)), f.x), mix(sh(i + vec2(0.0, 1.0)), sh(i + vec2(1.0, 1.0)), f.x), f.y);
+      }
+      float fbm(vec2 p) {
+        float v = 0.0;
+        float a = 0.5;
+        mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+        for (int i = 0; i < 5; i++) {
+          v += a * sn(p);
+          p = rot * p * 2.04 + vec2(13.7, 7.3);
+          a *= 0.5;
+        }
+        return v;
+      }
+
+      void main() {
+        vec4 src = texture(colorTexture, v_textureCoordinates);
+        float depth = czm_readDepth(depthTexture, v_textureCoordinates);
+        if (depth < 0.99995) {
+          out_FragColor = src;
+          return;
+        }
+
+        vec4 ndc = vec4(v_textureCoordinates * 2.0 - 1.0, 1.0, 1.0);
+        vec4 eye = czm_inverseProjection * ndc;
+        vec3 dirEC = normalize(eye.xyz / eye.w);
+        vec3 dirWC = normalize(czm_inverseViewRotation * dirEC);
+        vec3 rd = vec3(dot(dirWC, uEast), dot(dirWC, uNorth), dot(dirWC, uUp));
+        float elev = max(0.0, rd.z);
+
+        // Cielo andino limpio: azul profundo arriba, celeste en horizonte; tarde fresca de Bogotá
+        vec3 zenDia = vec3(0.16, 0.42, 0.82);
+        vec3 horDia = vec3(0.72, 0.83, 0.94);
+        vec3 zenTarde = vec3(0.18, 0.36, 0.68);
+        vec3 horTarde = vec3(0.76, 0.76, 0.82);
+        vec3 zenNoche = vec3(0.015, 0.025, 0.065);
+        vec3 horNoche = vec3(0.04, 0.06, 0.12);
+
+        vec3 zen = mix(mix(zenDia, zenTarde, uTarde), zenNoche, uNight);
+        vec3 hor = mix(mix(horDia, horTarde, uTarde), horNoche, uNight);
+        vec3 sky = mix(hor, zen, pow(elev, 0.52));
+
+        // Halo y disco solar sutil
+        float sunDot = max(0.0, dot(dirWC, normalize(czm_sunDirectionWC)));
+        vec3 sunGlowCol = mix(vec3(1.0, 0.96, 0.88), vec3(1.0, 0.84, 0.64), uTarde);
+        sky += sunGlowCol * pow(sunDot, 10.0) * 0.28 * (1.0 - uNight);
+        sky += vec3(1.0, 0.98, 0.92) * smoothstep(0.9992, 0.99985, sunDot) * 1.4 * (1.0 - uNight);
+
+        // Nubes cúmulos proyectadas en cúpula, con desplazamiento lento por el viento
+        if (rd.z > 0.005) {
+          vec2 uv = rd.xy / (rd.z + 0.16);
+          vec2 wind = vec2(uTime * 0.008, uTime * 0.003);
+          float n1 = fbm(uv * 0.75 + wind);
+          float n2 = fbm(uv * 1.65 - wind * 0.6 + vec2(4.2, 9.1));
+          float density = smoothstep(0.47, 0.76, n1 * 0.72 + n2 * 0.34);
+
+          // Sombreado propio de la nube hacia el sol
+          float nSun = fbm((uv + vec2(0.05, 0.03)) * 0.75 + wind);
+          float lit = clamp(0.55 + (n1 - nSun) * 3.2 + sunDot * 0.25, 0.0, 1.0);
+
+          vec3 cLitDia = vec3(0.99, 0.99, 1.0);
+          vec3 cShdDia = vec3(0.62, 0.71, 0.84);
+          vec3 cLitTarde = vec3(0.98, 0.92, 0.86);
+          vec3 cShdTarde = vec3(0.48, 0.54, 0.68);
+          vec3 cNoche = vec3(0.04, 0.06, 0.11);
+
+          vec3 cloudCol = mix(
+            mix(mix(cShdDia, cLitDia, lit), mix(cShdTarde, cLitTarde, lit), uTarde),
+            cNoche,
+            uNight
+          );
+          float horizonFade = smoothstep(0.005, 0.14, rd.z);
+          sky = mix(sky, cloudCol, density * horizonFade * 0.88);
+        }
+
+        out_FragColor = vec4(sky, src.a);
+      }
+    `,
+  });
+}
+
 export function gradeStage(): Cesium.PostProcessStage {
   return new Cesium.PostProcessStage({
     name: 'hlf_grade',

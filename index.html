@@ -27,9 +27,17 @@
     <span id="clockLabel">10:10</span>
   </div>
 
-  <div id="hint">
-    Arrastra para orbitar · Rueda para acercar · Clic para fijar el pivote · Doble clic para enfocar
-  </div>
+  <div id="hint">Arrastra para orbitar · Clic derecho o Shift para desplazar · Rueda para acercar · Clic en un edificio para seleccionarlo y pivotar · Doble clic para enfocar · WASD para avanzar</div>
+
+  <div id="status" class="chip" hidden><span class="dot"></span><span id="statusText"></span></div>
+
+  <aside id="card" class="card" hidden>
+    <button id="cardClose" aria-label="Cerrar">×</button>
+    <small id="cardKind">Edificación</small>
+    <strong id="cardTitle"></strong>
+    <dl id="cardData"></dl>
+    <div class="row"><button id="cardFocus">Enfocar</button><button id="cardWalk">Ir a pie</button></div>
+  </aside>
 
   <nav class="dock">
     <div class="group" role="group" aria-label="Hora del día">
@@ -39,9 +47,16 @@
     </div>
     <span class="sep" aria-hidden="true"></span>
     <div class="group" role="group" aria-label="Vistas">
-      <button id="btnAerial">Aérea</button>
-      <button id="btnPedestrian">Peatonal</button>
       <button id="btnHome">Vista general</button>
+      <button id="btnAerial">Aérea</button>
+      <button id="btnArch">Arquitectónica</button>
+      <button id="btnPedestrian">Peatonal</button>
+    </div>
+    <span class="sep" aria-hidden="true"></span>
+    <div class="group" role="group" aria-label="Sectores">
+      <button data-place="hotel">Hotel</button>
+      <button data-place="unicentro">Unicentro</button>
+      <button id="btnOrbit" title="Giro automático de 360°">Giro 360°</button>
     </div>
   </nav>
 

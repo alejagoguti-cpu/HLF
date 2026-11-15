@@ -1,160 +1,237 @@
 import * as Cesium from 'cesium';
-import { SITE, ASSETS } from './config';
+import { GEO, ASSETS } from './config';
+import { facadeShader, treeShader, cityShader } from './shaders';
 
-/** Matriz del modelo: marco ENU en el sitio + giro de alineación. */
-export function siteModelMatrix(height: number): Cesium.Matrix4 {
-  const enu = Cesium.Transforms.eastNorthUpToFixedFrame(
-    Cesium.Cartesian3.fromDegrees(SITE.longitude, SITE.latitude, height),
+/** Marco ENU en el origen de la georreferencia de Unreal. */
+export function siteMatrix(): Cesium.Matrix4 {
+  return Cesium.Transforms.eastNorthUpToFixedFrame(
+    Cesium.Cartesian3.fromDegrees(GEO.longitude, GEO.latitude, GEO.height),
   );
-  const rot = Cesium.Matrix4.fromRotationTranslation(
-    Cesium.Matrix3.fromRotationZ(Cesium.Math.toRadians(SITE.headingOffset)),
-  );
-  return Cesium.Matrix4.multiply(enu, rot, new Cesium.Matrix4());
 }
 
-/**
- * Ventanas encendidas al caer la noche.
- *
- * El patrón se calcula por fragmento sobre la posición en coordenadas de
- * modelo (metros, Y arriba): retícula de 3.1 m por piso de 3.6 m, con
- * encendido pseudoaleatorio estable por celda, así no se repite la textura.
- * El paramento vertical llega como varying desde el vértice porque Cesium no
- * expone la normal de modelo en el fragment shader.
- */
-function facadeNightShader(): Cesium.CustomShader {
-  return new Cesium.CustomShader({
-    uniforms: {
-      uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
-    },
-    varyings: {
-      vModelPos: Cesium.VaryingType.VEC3,
-      vFacade: Cesium.VaryingType.FLOAT,
-    },
-    vertexShaderText: `
-      void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput) {
-        vModelPos = vsInput.attributes.positionMC;
-        vFacade = 1.0 - smoothstep(0.42, 0.78, abs(normalize(vsInput.attributes.normalMC).y));
-      }
-    `,
-    fragmentShaderText: `
-      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
-        vec3 p = vModelPos;
-
-        float w = 3.1;
-        float fh = 3.6;
-        float wx = fract(p.x / w);
-        float wz = fract(p.z / w);
-        float wy = fract(p.y / fh);
-
-        float glassX = smoothstep(0.18, 0.30, min(wx, 1.0 - wx));
-        float glassZ = smoothstep(0.18, 0.30, min(wz, 1.0 - wz));
-        float glass = max(glassX, glassZ) * smoothstep(0.24, 0.36, min(wy, 1.0 - wy));
-
-        vec2 cell = floor(vec2((p.x + p.z) / w, p.y / fh));
-        float seed = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
-        float on = step(0.34, seed);
-        vec3 tint = mix(vec3(1.0, 0.70, 0.38), vec3(1.0, 0.94, 0.80), fract(seed * 7.13));
-
-        float base = clamp(dot(material.diffuse.rgb, vec3(0.3333)), 0.0, 1.0);
-        material.emissive += tint * on * glass * vFacade * (0.55 + 0.45 * base) * uNight;
-        material.diffuse *= mix(1.0, 0.30, uNight);
-      }
-    `,
-  });
+/** Metros ENU -> posición en el mundo. */
+export function enuToWorld(e: number, n: number, u: number, m = siteMatrix()): Cesium.Cartesian3 {
+  return Cesium.Matrix4.multiplyByPoint(m, new Cesium.Cartesian3(e, n, u), new Cesium.Cartesian3());
 }
 
-/** La ciudad real se apaga de noche sin volverse un bloque negro. */
-function cityNightShader(): Cesium.CustomShader {
-  return new Cesium.CustomShader({
-    uniforms: {
-      uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
-    },
-    lightingModel: Cesium.LightingModel.UNLIT,
-    varyings: {
-      vCityPos: Cesium.VaryingType.VEC3,
-    },
-    vertexShaderText: `
-      void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput) {
-        vCityPos = vsInput.attributes.positionMC;
-      }
-    `,
-    fragmentShaderText: `
-      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
-        float grain = fract(sin(dot(floor(vCityPos.xz * 0.35), vec2(12.9898, 78.233))) * 43758.5453);
-        vec3 c = material.diffuse.rgb;
-        vec3 night = c * vec3(0.15, 0.18, 0.25);
-        night += vec3(1.0, 0.72, 0.40) * step(0.968, grain) * 0.30;
-        material.diffuse = mix(c, night, uNight);
-      }
-    `,
-  });
+export interface Building {
+  id: number;
+  /** sección */
+  s: string;
+  /** pisos */
+  p: number;
+  /** cota de base y altura (m) */
+  b: number;
+  h: number;
+  bb: [number, number, number, number];
+  r: [number, number][];
+}
+
+interface SectionInfo {
+  key: string;
+  file: string;
+  kind: 'edificios' | 'arboles' | 'cubierta';
+  label: string;
+  dist: number;
 }
 
 export interface Site {
-  model: Cesium.Model;
-  tileset: Cesium.Cesium3DTileset;
+  matrix: Cesium.Matrix4;
+  inverse: Cesium.Matrix4;
+  tileset: Cesium.Cesium3DTileset | null;
+  buildings: Building[];
+  treeCount: number;
+  sections: { total: number; loaded: number; failed: string[] };
+  /** resuelve cuando termina la carga de todas las secciones */
+  done: Promise<void>;
   setNight(night: number): void;
-  dispose(): void;
+  setTreesVisible(v: boolean): void;
+  buildingAt(world: Cesium.Cartesian3): Building | null;
+}
+
+const TREE_LABEL: Record<string, string> = {
+  island_tree_01: 'Arbolado · copa media',
+  island_tree_02: 'Arbolado · copa ancha',
+  island_tree_03: 'Arbolado · copa baja',
+  jacaranda_tree: 'Arbolado · gran porte',
+  tree_small_02: 'Arbolado · joven',
+  fir_sapling_medium: 'Coníferas',
+  shrub_02: 'Arbustos',
+};
+
+function pointInRing(x: number, y: number, r: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    const [xi, yi] = r[i];
+    const [xj, yj] = r[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function distToRing(x: number, y: number, r: [number, number][]): number {
+  let best = Infinity;
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    const [ax, ay] = r[j];
+    const [bx, by] = r[i];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+    best = Math.min(best, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+  }
+  return best;
 }
 
 export async function loadSite(
   viewer: Cesium.Viewer,
-  onProgress?: (label: string, ratio: number) => void,
+  onProgress: (label: string, ratio: number) => void,
+  onSection?: (loaded: number, total: number, label: string) => void,
 ): Promise<Site> {
   const scene = viewer.scene;
+  const matrix = siteMatrix();
+  const inverse = Cesium.Matrix4.inverseTransformation(matrix, new Cesium.Matrix4());
+  const base = ASSETS.secciones;
 
-  let groundHeight = SITE.height;
+  onProgress('Contexto urbano', 0.08);
+
+  const [recorte, edif, arb] = await Promise.all([
+    fetch(base + 'recorte.json').then((r) => r.json()) as Promise<{ clip: [number, number][] }>,
+    fetch(base + 'edificios.json').then((r) => r.json()) as Promise<{
+      secciones: { key: string; file: string; c: [number, number] }[];
+      edificios: Building[];
+    }>,
+    fetch(base + 'arboles.json').then((r) => r.json()) as Promise<{
+      total: number;
+      secciones: { key: string; file: string; n: number }[];
+    }>,
+  ]);
+
+  /* ---------------- ciudad real (Google) recortada donde va el modelo ---------------- */
+  const cShader = cityShader();
+  let tileset: Cesium.Cesium3DTileset | null = null;
   try {
-    const carto = Cesium.Cartographic.fromDegrees(SITE.longitude, SITE.latitude);
-    const [sampled] = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [carto]);
-    if (sampled && Number.isFinite(sampled.height)) groundHeight = sampled.height;
-  } catch {
-    /* sin terreno: se usa la altitud de referencia del proyecto */
+    tileset = await Cesium.Cesium3DTileset.fromUrl(ASSETS.googleTiles, {
+      maximumScreenSpaceError: 14,
+      shadows: Cesium.ShadowMode.RECEIVE_ONLY,
+      dynamicScreenSpaceError: true,
+      dynamicScreenSpaceErrorDensity: 0.0022,
+      dynamicScreenSpaceErrorFactor: 4,
+      showCreditsOnScreen: true,
+      cullWithChildrenBounds: true,
+      cacheBytes: 384 * 1024 * 1024,
+      maximumCacheOverflowBytes: 256 * 1024 * 1024,
+    });
+    const polygon = new Cesium.ClippingPolygon({
+      positions: Cesium.Cartesian3.fromDegreesArray(recorte.clip.flat()),
+    });
+    // computeRectangle se llama por tile y por cuadro: se calcula una vez
+    const rect = polygon.computeRectangle();
+    polygon.computeRectangle = (result?: Cesium.Rectangle) => Cesium.Rectangle.clone(rect, result);
+    tileset.clippingPolygons = new Cesium.ClippingPolygonCollection({ polygons: [polygon] });
+    tileset.customShader = cShader;
+    scene.primitives.add(tileset);
+  } catch (err) {
+    console.warn('Tiles de Google no disponibles', err);
   }
 
-  onProgress?.('Contexto urbano', 0.18);
+  /* ---------------- secciones del modelo, de la más cercana al hotel hacia afuera ---------------- */
+  const HOTEL: [number, number] = [-236, 330];
+  const list: SectionInfo[] = [];
+  for (const s of edif.secciones) {
+    list.push({
+      key: s.key,
+      file: s.file,
+      kind: 'edificios',
+      label: s.key === 'Hotel' ? 'Hotel La Fontana' : `Edificaciones · sector ${s.key}`,
+      dist: s.key === 'Hotel' ? -2 : Math.hypot(s.c[0] - HOTEL[0], s.c[1] - HOTEL[1]),
+    });
+  }
+  list.push({ key: 'hotel_cubiertas', file: 'hotel_cubiertas.glb', kind: 'cubierta', label: 'Cubiertas del hotel', dist: -1 });
+  list.sort((a, b) => a.dist - b.dist);
+  // la vegetación entra intercalada después de las primeras edificaciones
+  const trees: SectionInfo[] = arb.secciones.map((s) => ({
+    key: s.key,
+    file: s.file,
+    kind: 'arboles',
+    label: TREE_LABEL[s.key] ?? 'Vegetación',
+    dist: 0,
+  }));
+  const queue: SectionInfo[] = [...list.slice(0, 4), ...trees.slice(0, 3), ...list.slice(4, 9), ...trees.slice(3), ...list.slice(9)];
 
-  /* ---------------- ciudad y vegetación reales ---------------- */
-  const cityShader = cityNightShader();
-  const tileset = await Cesium.Cesium3DTileset.fromUrl(ASSETS.googleTiles, {
-    maximumScreenSpaceError: 12,
-    shadows: Cesium.ShadowMode.ENABLED,
-    dynamicScreenSpaceError: true,
-    dynamicScreenSpaceErrorDensity: 0.0022,
-    dynamicScreenSpaceErrorFactor: 4,
-    showCreditsOnScreen: true,
-    cullWithChildrenBounds: true,
-  });
-  tileset.customShader = cityShader;
-  scene.primitives.add(tileset);
+  const fShader = facadeShader();
+  const tShader = treeShader();
+  const treeModels: Cesium.Model[] = [];
+  const state = { total: queue.length, loaded: 0, failed: [] as string[] };
 
-  onProgress?.('Arquitectura del proyecto', 0.62);
-
-  /* ---------------- arquitectura propia ---------------- */
-  const facadeShader = facadeNightShader();
-  const model = await Cesium.Model.fromGltfAsync({
-    url: ASSETS.model,
-    modelMatrix: siteModelMatrix(groundHeight + SITE.verticalOffset),
-    shadows: Cesium.ShadowMode.ENABLED,
-    show: true,
-  });
-  model.customShader = facadeShader;
-  scene.primitives.add(model);
-
-  onProgress?.('Vegetación y entorno', 0.92);
-
-  const setNight = (v: number) => {
-    cityShader.setUniform('uNight', v);
-    facadeShader.setUniform('uNight', Math.max(0, (v - 0.2) / 0.8));
+  const loadOne = async (s: SectionInfo): Promise<void> => {
+    try {
+      const model = await Cesium.Model.fromGltfAsync({
+        url: base + s.file,
+        modelMatrix: matrix,
+        upAxis: Cesium.Axis.Y,
+        forwardAxis: Cesium.Axis.X,
+        shadows: s.kind === 'arboles' ? Cesium.ShadowMode.CAST_ONLY : Cesium.ShadowMode.ENABLED,
+        backFaceCulling: false,
+        incrementallyLoadTextures: false,
+        cull: s.kind !== 'arboles',
+      });
+      model.customShader = s.kind === 'arboles' ? tShader : fShader;
+      scene.primitives.add(model);
+      if (s.kind === 'arboles') treeModels.push(model);
+      await new Promise<void>((resolve) => {
+        if (model.ready) return resolve();
+        const off = model.readyEvent.addEventListener(() => { off(); resolve(); });
+        setTimeout(resolve, 20000);
+      });
+    } catch (err) {
+      console.error('Sección no cargada', s.file, err);
+      state.failed.push(s.file);
+    }
+    state.loaded++;
+    onSection?.(state.loaded, state.total, s.label);
   };
 
+  // primer plano: hotel + manzanas vecinas + primera vegetación; el resto sigue en segundo plano
+  const FIRST = 7;
+  for (let i = 0; i < Math.min(FIRST, queue.length); i++) {
+    onProgress(queue[i].label, 0.2 + (0.75 * i) / FIRST);
+    await loadOne(queue[i]);
+  }
+  const done = (async () => {
+    for (let i = FIRST; i < queue.length; i++) {
+      await loadOne(queue[i]);
+      await new Promise((r) => setTimeout(r, 60));
+    }
+  })();
+
   return {
-    model,
+    matrix,
+    inverse,
     tileset,
-    setNight,
-    dispose() {
-      scene.primitives.remove(model);
-      scene.primitives.remove(tileset);
+    buildings: edif.edificios,
+    treeCount: arb.total,
+    sections: state,
+    done,
+    setNight(v: number) {
+      cShader.setUniform('uNight', v);
+      fShader.setUniform('uNight', v);
+      tShader.setUniform('uNight', v);
+    },
+    setTreesVisible(v: boolean) {
+      for (const m of treeModels) m.show = v;
+    },
+    buildingAt(world: Cesium.Cartesian3): Building | null {
+      const p = Cesium.Matrix4.multiplyByPoint(inverse, world, new Cesium.Cartesian3());
+      let best: Building | null = null;
+      let bestD = 1.2;
+      for (const b of edif.edificios) {
+        if (p.x < b.bb[0] - 1.5 || p.x > b.bb[2] + 1.5 || p.y < b.bb[1] - 1.5 || p.y > b.bb[3] + 1.5) continue;
+        if (p.z > b.b + b.h + 2.5) continue;
+        if (pointInRing(p.x, p.y, b.r)) return b;
+        const d = distToRing(p.x, p.y, b.r);
+        if (d < bestD) { bestD = d; best = b; }
+      }
+      return best;
     },
   };
 }

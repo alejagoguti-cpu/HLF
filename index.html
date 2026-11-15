@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>UNICENTRO · Visor 3D</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <div id="loader">
+    <div class="loader-inner">
+      <div class="loader-mark">U</div>
+      <div class="loader-title">UNICENTRO</div>
+      <div class="loader-sub">Cargando escena</div>
+      <div class="loader-bar"><div class="loader-bar-fill" id="bar"></div></div>
+      <div class="loader-pct" id="pct">0%</div>
+    </div>
+  </div>
+
+  <header id="hud">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span class="brand-name">UNICENTRO</span>
+      <span class="brand-tag">Visor 3D · Bogotá</span>
+    </div>
+    <nav class="tools">
+      <button id="btn-home" title="Vista general">Vista general</button>
+      <button id="btn-sun" title="Cambiar hora del día">Hora</button>
+      <button id="btn-fly" title="Modo vuelo (WASD)">Vuelo</button>
+    </nav>
+  </header>
+
+  <div id="hint">
+    <kbd>Arrastrar</kbd> orbitar · <kbd>Rueda</kbd> acercar · <kbd>W A S D</kbd> avanzar · <kbd>Q E</kbd> altura · <kbd>Shift</kbd> rápido
+  </div>
+
+  <div id="stats"></div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

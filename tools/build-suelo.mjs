@@ -35,6 +35,7 @@ for (const node of doc.getRoot().listNodes()) {
     else for (let i = 0; i < pos.getCount(); i++) a.I.push(base + i);
   }
 }
+const CODIGO = { Terreno: 0, Vias: 1, Andenes: 2, Separadores: 3, Ciclorrutas: 4, Agua: 5, Canal_Fondo: 6, Canal_Muros: 6, Puentes: 7 };
 const manifest = [];
 for (const capa of CAPAS) {
   const a = acc[capa];
@@ -44,7 +45,7 @@ for (const capa of CAPAS) {
   for (let i = 0; i < P.length; i += 3) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], P[i + k]); mx[k] = Math.max(mx[k], P[i + k]); }
   const g = new Glb();
   g.j.materials.push({ name: capa, doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 0.9 } });
-  g.j.meshes.push({ name: capa, primitives: [{ attributes: { POSITION: g.acc(P, 'VEC3', { target: 34962, minmax: true }), NORMAL: g.acc(new Float32Array(a.N), 'VEC3', { target: 34962 }) }, indices: g.acc(new Uint32Array(a.I), 'SCALAR', { target: 34963 }), material: 0 }] });
+  g.j.meshes.push({ name: capa, primitives: [{ attributes: { POSITION: g.acc(P, 'VEC3', { target: 34962, minmax: true }), NORMAL: g.acc(new Float32Array(a.N), 'VEC3', { target: 34962 }), COLOR_0: g.acc(new Uint8Array(a.n * 4).map((_, i) => (i % 4 === 0 ? CODIGO[capa] * 32 : 255)), 'VEC4', { target: 34962, normalized: true }) }, indices: g.acc(new Uint32Array(a.I), 'SCALAR', { target: 34963 }), material: 0 }] });
   g.j.nodes.push({ name: 'Suelo_' + capa, mesh: 0 });
   g.j.scenes[0].nodes.push(0);
   const file = `suelo_${capa}.glb`;

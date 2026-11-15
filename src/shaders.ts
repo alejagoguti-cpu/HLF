@@ -1,6 +1,22 @@
 import * as Cesium from 'cesium';
 
 /** Bruma por distancia (misma atmósfera para modelo, vegetación y ciudad). */
+/** Textura 1x1 mientras llega la foto aérea. */
+export function blankTexture(): Cesium.TextureUniform {
+  return new Cesium.TextureUniform({ typedArray: new Uint8Array([128, 128, 128, 255]), width: 1, height: 1 });
+}
+const AERIAL_UNIFORMS = () => ({
+  uAerial: { type: Cesium.UniformType.SAMPLER_2D, value: blankTexture() },
+  /** rectángulo ENU que cubre la foto: este0, norte0, este1, norte1 */
+  uAerialRect: { type: Cesium.UniformType.VEC4, value: new Cesium.Cartesian4(-1000, -1000, 1000, 1000) },
+  uAerialOn: { type: Cesium.UniformType.FLOAT, value: 0 },
+});
+const AERIAL_GLSL = `
+  vec3 hlfAerial(vec2 en) {
+    vec2 uv = (en - uAerialRect.xy) / (uAerialRect.zw - uAerialRect.xy);
+    return czm_srgbToLinear(texture(uAerial, clamp(uv, 0.001, 0.999)).rgb);
+  }
+`;
 const HAZE_GLSL = `
   vec3 hlfHazeColor(float night) { return mix(vec3(0.70, 0.72, 0.74), vec3(0.03, 0.04, 0.07), night); }
   float hlfHaze(float d) { return 0.0; }   // sin neblina
@@ -22,6 +38,9 @@ export function facadeShader(): Cesium.CustomShader {
   return new Cesium.CustomShader({
     uniforms: {
       uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
+      /** desplazamiento de la foto por metro de altura (la foto aérea no es perfectamente cenital) */
+      uLean: { type: Cesium.UniformType.VEC2, value: new Cesium.Cartesian2(0, 0) },
+      ...AERIAL_UNIFORMS(),
     },
     varyings: {
       vPosM: Cesium.VaryingType.VEC3,
@@ -31,7 +50,7 @@ export function facadeShader(): Cesium.CustomShader {
         vPosM = vsInput.attributes.positionMC;
       }
     `,
-    fragmentShaderText: HAZE_GLSL + `
+    fragmentShaderText: HAZE_GLSL + AERIAL_GLSL + `
       float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float vnoise(vec2 p) {
         vec2 i = floor(p); vec2 f = fract(p);
@@ -75,6 +94,11 @@ export function facadeShader(): Cesium.CustomShader {
             col *= 1.0 - near * (0.10 * junta + 0.14 * esTeja * (1.0 - hilada));
             col *= 1.0 - near * 0.06 * (vnoise(uv * 3.1) - 0.5);
           }
+          // cubierta real: la foto aérea, corrida según la altura del edificio
+          if (uAerialOn > 0.5) {
+            vec3 foto = hlfAerial(uv + uLean * pisos * 3.0);
+            col = mix(col, foto, 0.94);
+          }
         } else if (tipo > 0.65) {
           /* ---------- alero ---------- */
           col = vec3(0.74, 0.71, 0.66);
@@ -92,6 +116,12 @@ export function facadeShader(): Cesium.CustomShader {
             fino *= 0.88 + 0.12 * smoothstep(0.0, 0.12, fract(t.y));
             col = mix(col * 0.9, fino, near);
           } else col *= 0.9;
+          if (uAerialOn > 0.5) {
+            // el color lo pone la cubierta real fotografiada; la teja modelada aporta el relieve
+            vec3 foto = hlfAerial(vec2(vPosM.x, -vPosM.z) + uLean * 21.0);
+            float lum = dot(col, vec3(0.3333)) / 0.42;
+            col = mix(col, foto * mix(1.0, lum, 0.55 * near), 0.9);
+          }
           rough = 0.86;
         } else {
           /* ---------- muro ---------- */
@@ -359,13 +389,29 @@ export function gradeStage(): Cesium.PostProcessStage {
 }
 
 /**
- * Suelo modelado. capa: 0 terreno · 1 vía · 2 andén · 3 separador · 4 ciclorruta · 5 agua · 6 canal · 7 puente
+ * Suelo modelado, con materiales reales:
+ *   terreno (capa 0): la foto aérea real del sector (parqueaderos, canchas, prados tal como son)
+ *   vías, andenes, separadores y ciclorrutas: texturas fotográficas (las del proyecto Unreal)
+ * La capa llega por vértice (color_0.r * 8): 0 terreno · 1 vía · 2 andén · 3 separador · 4 ciclorruta · 5 agua · 6 canal · 7 puente
  */
-export function groundShader(capa: number): Cesium.CustomShader {
+export function groundShader(base: string): Cesium.CustomShader {
+  const tex = (name: string) => ({
+    type: Cesium.UniformType.SAMPLER_2D,
+    value: new Cesium.TextureUniform({
+      url: base + name,
+      repeat: true,
+      minificationFilter: Cesium.TextureMinificationFilter.LINEAR_MIPMAP_LINEAR,
+      magnificationFilter: Cesium.TextureMagnificationFilter.LINEAR,
+    }),
+  });
   return new Cesium.CustomShader({
     uniforms: {
       uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
-      uCapa: { type: Cesium.UniformType.FLOAT, value: capa },
+      uAsfalto: tex('tex_asfalto.webp'),
+      uAnden: tex('tex_anden.webp'),
+      uPrado: tex('tex_prado.webp'),
+      uCiclo: tex('tex_ciclo.webp'),
+      ...AERIAL_UNIFORMS(),
     },
     varyings: { vG: Cesium.VaryingType.VEC3 },
     vertexShaderText: `
@@ -373,50 +419,43 @@ export function groundShader(capa: number): Cesium.CustomShader {
         vG = vsInput.attributes.positionMC;
       }
     `,
-    fragmentShaderText: HAZE_GLSL + `
+    fragmentShaderText: HAZE_GLSL + AERIAL_GLSL + `
       float gh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float gn(vec2 p) {
         vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
         return mix(mix(gh(i), gh(i + vec2(1.0, 0.0)), f.x), mix(gh(i + vec2(0.0, 1.0)), gh(i + vec2(1.0, 1.0)), f.x), f.y);
       }
       void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+        float capa = floor(fsInput.attributes.color_0.r * 8.0 + 0.5);
         vec2 p = vG.xz;
-        float dist = length(fsInput.attributes.positionEC);
-        float near = 1.0 - smoothstep(60.0, 260.0, dist);
-        float big = gn(p * 0.035);
-        float mid = gn(p * 0.35);
+        vec2 en = vec2(vG.x, -vG.z);
+        float big = gn(p * 0.03);
+        vec3 foto = uAerialOn > 0.5 ? hlfAerial(en) : vec3(0.36, 0.40, 0.30);
         vec3 col;
         float rough = 0.95;
-        if (uCapa < 0.5) {            // terreno: prado y tierra
-          col = mix(vec3(0.27, 0.36, 0.20), vec3(0.36, 0.44, 0.25), big);
-          col = mix(col, vec3(0.42, 0.40, 0.30), smoothstep(0.70, 0.95, gn(p * 0.08 + 7.0)) * 0.5);
-          col *= 0.92 + 0.16 * mid;
-          col *= 1.0 - near * 0.18 * (gn(p * 3.0) - 0.5);
-        } else if (uCapa < 1.5) {     // vía: asfalto
-          col = mix(vec3(0.20, 0.20, 0.21), vec3(0.27, 0.27, 0.27), big);
-          col *= 0.94 + 0.12 * mid;
-          col *= 1.0 - near * 0.10 * (gh(floor(p * 14.0)) - 0.5);
-          rough = 0.9;
-        } else if (uCapa < 2.5) {     // andén: adoquín y concreto claro
-          col = mix(vec3(0.62, 0.60, 0.56), vec3(0.70, 0.68, 0.63), big);
-          col *= 0.95 + 0.10 * mid;
-          vec2 g = abs(fract(p / vec2(0.4, 0.2)) - 0.5);
-          col *= 1.0 - near * 0.16 * smoothstep(0.44, 0.5, max(g.x, g.y));
-        } else if (uCapa < 3.5) {     // separador: prado cuidado
-          col = mix(vec3(0.30, 0.42, 0.22), vec3(0.38, 0.50, 0.27), big) * (0.92 + 0.16 * mid);
-        } else if (uCapa < 4.5) {     // ciclorruta
-          col = vec3(0.50, 0.27, 0.22) * (0.92 + 0.14 * mid);
-        } else if (uCapa < 5.5) {     // agua del canal
-          col = mix(vec3(0.16, 0.24, 0.24), vec3(0.22, 0.30, 0.29), mid);
-          rough = 0.18;
+        if (capa < 0.5) {             // terreno: tal cual es en la realidad
+          col = foto;
+        } else if (capa < 1.5) {      // vía: asfalto real, con el desgaste que muestra la foto
+          col = czm_srgbToLinear(texture(uAsfalto, p / 5.0).rgb) * (0.86 + 0.28 * big);
+          col = mix(col, foto, 0.22 * uAerialOn);
+          rough = 0.88;
+        } else if (capa < 2.5) {      // andén: adoquín de concreto
+          col = czm_srgbToLinear(texture(uAnden, p / 2.4).rgb) * (0.92 + 0.16 * big);
+          col = mix(col, foto, 0.18 * uAerialOn);
+        } else if (capa < 3.5) {      // separador: prado
+          col = czm_srgbToLinear(texture(uPrado, p / 3.0).rgb) * (0.80 + 0.30 * big);
+        } else if (capa < 4.5) {      // ciclorruta
+          col = czm_srgbToLinear(texture(uCiclo, p / 4.0).rgb) * (0.92 + 0.16 * big);
+        } else if (capa < 5.5) {      // agua del canal
+          col = mix(vec3(0.10, 0.15, 0.15), vec3(0.15, 0.20, 0.19), gn(p * 0.4));
+          rough = 0.15;
         } else {                      // canal y puentes: concreto
-          col = mix(vec3(0.56, 0.55, 0.52), vec3(0.64, 0.63, 0.60), big) * (0.94 + 0.10 * mid);
+          col = mix(vec3(0.42, 0.41, 0.39), vec3(0.50, 0.49, 0.47), big);
         }
-        float hz = hlfHaze(dist);
-        material.diffuse = col * mix(1.0, 0.35, uNight) * (1.0 - hz);
+        material.diffuse = col * mix(1.0, 0.35, uNight);
         material.roughness = rough;
-        material.specular = vec3(0.03) * (1.0 - hz);
-        material.emissive = col * 0.16 * (1.0 - uNight) * (1.0 - hz) + hlfHazeColor(uNight) * hz;
+        material.specular = vec3(0.03);
+        material.emissive = col * 0.14 * (1.0 - uNight);
       }
     `,
   });

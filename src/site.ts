@@ -180,10 +180,76 @@ export async function loadSite(
   const queue: SectionInfo[] = [...ground, ...list.slice(0, 4), ...trees.slice(0, 3), ...list.slice(4, 9), ...trees.slice(3), ...list.slice(9)];
 
   const fShader = facadeShader();
+  const gShader = groundShader(base);
+
+  /* ---------------- foto aérea real del sector (para el terreno y las cubiertas) ---------------- */
+  const aerial = (async () => {
+    try {
+      const provider = await Cesium.IonImageryProvider.fromAssetId(ASSETS.imageryAssetId);
+      const LEVEL = 18;
+      const ts = provider.tilingScheme;
+      const carto = (e: number, n: number) => Cesium.Cartographic.fromCartesian(enuToWorld(e, n, 0, matrix));
+      const a = ts.positionToTileXY(carto(-1010, 930), LEVEL); // noroeste
+      const b = ts.positionToTileXY(carto(1010, -940), LEVEL); // sureste
+      const nx = b.x - a.x + 1;
+      const ny = b.y - a.y + 1;
+      const size = provider.tileWidth;
+      const canvas = document.createElement('canvas');
+      canvas.width = nx * size;
+      canvas.height = ny * size;
+      const ctx = canvas.getContext('2d')!;
+      const jobs: [number, number][] = [];
+      for (let y = a.y; y <= b.y; y++) for (let x = a.x; x <= b.x; x++) jobs.push([x, y]);
+      const one = async ([x, y]: [number, number]) => {
+        for (let k = 0; k < 40; k++) {
+          const req = provider.requestImage(x, y, LEVEL);
+          if (req) {
+            try {
+              const img = (await req) as CanvasImageSource;
+              ctx.drawImage(img, (x - a.x) * size, (y - a.y) * size, size, size);
+            } catch { /* tile sin imagen: queda el gris de fondo */ }
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 120));
+        }
+      };
+      ctx.fillStyle = '#6a6f62';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const workers = Array.from({ length: 6 }, async () => { while (jobs.length) await one(jobs.shift()!); });
+      await Promise.all(workers);
+      // textura potencia de dos
+      const out = document.createElement('canvas');
+      out.width = out.height = 4096;
+      out.getContext('2d')!.drawImage(canvas, 0, 0, 4096, 4096);
+      const blob = await new Promise<Blob | null>((r) => out.toBlob(r, 'image/jpeg', 0.92));
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const rw = ts.tileXYToRectangle(a.x, a.y, LEVEL);
+      const re = ts.tileXYToRectangle(b.x, b.y, LEVEL);
+      const toEnu = (lon: number, lat: number) =>
+        Cesium.Matrix4.multiplyByPoint(inverse, Cesium.Cartesian3.fromRadians(lon, lat, GEO.height), new Cesium.Cartesian3());
+      const sw = toEnu(rw.west, re.south);
+      const ne = toEnu(re.east, rw.north);
+      const rect = new Cesium.Cartesian4(sw.x, sw.y, ne.x, ne.y);
+      for (const sh of [fShader, gShader]) {
+        sh.setUniform('uAerial', new Cesium.TextureUniform({
+          url,
+          repeat: false,
+          minificationFilter: Cesium.TextureMinificationFilter.LINEAR_MIPMAP_LINEAR,
+          magnificationFilter: Cesium.TextureMagnificationFilter.LINEAR,
+        }));
+        sh.setUniform('uAerialRect', rect);
+        sh.setUniform('uAerialOn', 1);
+      }
+    } catch (err) {
+      console.warn('Foto aérea no disponible', err);
+    }
+  })();
+  void aerial;
   const tShaders: Cesium.CustomShader[] = [];
   const treeModels: Cesium.Model[] = [];
   let night = 0;
-  const groundShaders: Cesium.CustomShader[] = [];
+
   const state = { total: queue.length, loaded: 0, failed: [] as string[] };
 
   const loadOne = async (s: SectionInfo): Promise<void> => {
@@ -198,12 +264,7 @@ export async function loadSite(
         incrementallyLoadTextures: false,
         cull: s.kind !== 'arboles',
       });
-      if (s.kind === 'suelo') {
-        const gs = groundShader(s.capa ?? 0);
-        gs.setUniform('uNight', night);
-        groundShaders.push(gs);
-        model.customShader = gs;
-      } else if (s.kind === 'arboles') {
+      if (s.kind === 'suelo') model.customShader = gShader; else if (s.kind === 'arboles') {
         const sh = treeShader(base + s.atlas!, s.marco!, s.marcoSup!);
         sh.setUniform('uNight', night);
         tShaders.push(sh);
@@ -251,7 +312,7 @@ export async function loadSite(
       cShader.setUniform('uNight', v);
       fShader.setUniform('uNight', v);
       night = v;
-      for (const g of groundShaders) g.setUniform('uNight', v);
+      gShader.setUniform('uNight', v);
       for (const sh of tShaders) sh.setUniform('uNight', v);
     },
     setTreesVisible(v: boolean) {

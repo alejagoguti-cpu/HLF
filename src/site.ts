@@ -51,6 +51,7 @@ export interface Site {
   setNight(night: number): void;
   setTarde(tarde: number): void;
   setTime(t: number): void;
+  setLook(opts: { skyFill?: number; groundFill?: number; hazeAmount?: number; hazeStart?: number }): void;
   setTreesVisible(v: boolean): void;
   /** pisos del hotel visibles (99 = completo) */
   setHotelFloors(n: number): void;
@@ -254,6 +255,9 @@ export async function loadSite(
   const treeModels: Cesium.Model[] = [];
   let night = 0;
   let tarde = 0;
+  let skyFill = 0.22;
+  let hazeAmount = 0.08;
+  let hazeStart = 1200;
 
   const state = { total: queue.length, loaded: 0, failed: [] as string[] };
 
@@ -273,6 +277,9 @@ export async function loadSite(
         const sh = treeShader(base + s.atlas!, s.marco!, s.marcoSup!);
         sh.setUniform('uNight', night);
         sh.setUniform('uTarde', tarde);
+        sh.setUniform('uSkyFill', skyFill);
+        sh.setUniform('uHazeAmount', hazeAmount);
+        sh.setUniform('uHazeStart', hazeStart);
         tShaders.push(sh);
         model.customShader = sh;
       } else model.customShader = fShader;
@@ -330,6 +337,30 @@ export async function loadSite(
     },
     setTime(t: number) {
       for (const sh of tShaders) sh.setUniform('uTime', t);
+    },
+    setLook(opts) {
+      if (opts.skyFill !== undefined) {
+        skyFill = opts.skyFill;
+        fShader.setUniform('uSkyFill', skyFill);
+        for (const sh of tShaders) sh.setUniform('uSkyFill', skyFill);
+      }
+      if (opts.groundFill !== undefined) {
+        gShader.setUniform('uGroundFill', opts.groundFill);
+      }
+      if (opts.hazeAmount !== undefined) {
+        hazeAmount = opts.hazeAmount;
+        fShader.setUniform('uHazeAmount', hazeAmount);
+        gShader.setUniform('uHazeAmount', hazeAmount);
+        cShader.setUniform('uHazeAmount', hazeAmount);
+        for (const sh of tShaders) sh.setUniform('uHazeAmount', hazeAmount);
+      }
+      if (opts.hazeStart !== undefined) {
+        hazeStart = opts.hazeStart;
+        fShader.setUniform('uHazeStart', hazeStart);
+        gShader.setUniform('uHazeStart', hazeStart);
+        cShader.setUniform('uHazeStart', hazeStart);
+        for (const sh of tShaders) sh.setUniform('uHazeStart', hazeStart);
+      }
     },
     setHotelFloors(n: number) {
       fShader.setUniform('uHotelPisos', n);

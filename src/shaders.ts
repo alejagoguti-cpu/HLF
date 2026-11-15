@@ -25,8 +25,8 @@ const HAZE_GLSL = `
     vec3 nite = vec3(0.03, 0.05, 0.10);
     return mix(mix(day, sunset, tarde), nite, night);
   }
-  float hlfHaze(float d) {
-    return (1.0 - exp(-max(0.0, d - 1200.0) * 0.00010)) * 0.08;
+  float hlfHaze(float d, float startD, float amt) {
+    return (1.0 - exp(-max(0.0, d - startD) * 0.00015)) * amt;
   }
   // Luz indirecta hemisférica (estilo Lumen SkyLight): cielo frío arriba, rebote cálido abajo
   vec3 hlfSkyFill(vec3 nEC, vec3 upEC, float night, float tarde) {
@@ -59,6 +59,9 @@ export function facadeShader(): Cesium.CustomShader {
     uniforms: {
       uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
       uTarde: { type: Cesium.UniformType.FLOAT, value: 0 },
+      uSkyFill: { type: Cesium.UniformType.FLOAT, value: 0.24 },
+      uHazeAmount: { type: Cesium.UniformType.FLOAT, value: 0.08 },
+      uHazeStart: { type: Cesium.UniformType.FLOAT, value: 1200.0 },
       /** pisos del hotel ya apilados (animación al seleccionarlo); 99 = edificio completo */
       uHotelPisos: { type: Cesium.UniformType.FLOAT, value: 99 },
       /** desplazamiento de la foto por metro de altura (la foto aérea no es perfectamente cenital) */
@@ -268,13 +271,13 @@ export function facadeShader(): Cesium.CustomShader {
           if (hotel > 0.5 && uHotelPisos < 98.0) emis += vec3(0.55, 0.75, 1.0) * smoothstep(1.0, 0.0, uHotelPisos - v) * 0.65;
         }
 
-        float hz = hlfHaze(dist);
+        float hz = hlfHaze(dist, uHazeStart, uHazeAmount);
         vec3 skyFill = hlfSkyFill(material.normalEC, vUpEC, uNight, uTarde);
         material.diffuse = col * mix(1.0, 0.32, uNight) * (1.0 - hz);
         material.roughness = rough;
         material.specular = spec * (1.0 - hz);
         material.occlusion = occ;
-        material.emissive = (emis + col * skyFill * occ * 0.24) * (1.0 - hz) + hlfHazeColor(uNight, uTarde) * hz;
+        material.emissive = (emis + col * skyFill * occ * uSkyFill) * (1.0 - hz) + hlfHazeColor(uNight, uTarde) * hz;
       }
     `,
   });
@@ -293,6 +296,9 @@ export function treeShader(atlasUrl: string, frame: number, topFrame: number): C
     uniforms: {
       uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
       uTarde: { type: Cesium.UniformType.FLOAT, value: 0 },
+      uSkyFill: { type: Cesium.UniformType.FLOAT, value: 0.22 },
+      uHazeAmount: { type: Cesium.UniformType.FLOAT, value: 0.08 },
+      uHazeStart: { type: Cesium.UniformType.FLOAT, value: 1200.0 },
       uTime: { type: Cesium.UniformType.FLOAT, value: 0 },
       uFrame: { type: Cesium.UniformType.FLOAT, value: frame },
       uTop: { type: Cesium.UniformType.FLOAT, value: topFrame },
@@ -381,7 +387,7 @@ export function treeShader(atlasUrl: string, frame: number, topFrame: number): C
         float borde = clamp(length(d), 0.0, 1.0);
         rgb *= mix(0.72, 1.06, borde * borde) * mix(0.80, 1.0, smoothstep(0.05, 0.6, vUV.y));
 
-        float hz = hlfHaze(length(fsInput.attributes.positionEC));
+        float hz = hlfHaze(length(fsInput.attributes.positionEC), uHazeStart, uHazeAmount);
         material.diffuse = rgb * mix(1.0, 0.24, uNight) * (1.0 - hz);
         material.alpha = clamp(c.a * 1.3, 0.0, 1.0);
         // normal abombada (en coordenadas de ojo): el sol modela la copa
@@ -392,7 +398,7 @@ export function treeShader(atlasUrl: string, frame: number, topFrame: number): C
         float occCopa = mix(0.68, 1.0, smoothstep(0.05, 0.7, vUV.y));
         material.occlusion = occCopa;
         vec3 skyFill = hlfSkyFill(n, vUpEC, uNight, uTarde);
-        material.emissive = rgb * skyFill * occCopa * 0.22 * (1.0 - hz) + hlfHazeColor(uNight, uTarde) * hz;
+        material.emissive = rgb * skyFill * occCopa * uSkyFill * (1.0 - hz) + hlfHazeColor(uNight, uTarde) * hz;
       }
     `,
   });
@@ -404,6 +410,8 @@ export function cityShader(): Cesium.CustomShader {
     uniforms: {
       uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
       uTarde: { type: Cesium.UniformType.FLOAT, value: 0 },
+      uHazeAmount: { type: Cesium.UniformType.FLOAT, value: 0.08 },
+      uHazeStart: { type: Cesium.UniformType.FLOAT, value: 1200.0 },
     },
     lightingModel: Cesium.LightingModel.UNLIT,
     fragmentShaderText: HAZE_GLSL + `
@@ -413,7 +421,7 @@ export function cityShader(): Cesium.CustomShader {
         c = mix(vec3(dot(c, vec3(0.3, 0.59, 0.11))), c, 0.78);
         c = mix(c, c * vec3(1.01, 0.99, 0.97), uTarde * 0.35);
         c = mix(c, c * vec3(0.11, 0.14, 0.22), uNight);
-        material.diffuse = mix(c, hlfHazeColor(uNight, uTarde), hlfHaze(length(fsInput.attributes.positionEC)));
+        material.diffuse = mix(c, hlfHazeColor(uNight, uTarde), hlfHaze(length(fsInput.attributes.positionEC), uHazeStart, uHazeAmount));
       }
     `,
   });
@@ -435,6 +443,10 @@ export function skyStage(east: Cesium.Cartesian3, north: Cesium.Cartesian3, up: 
       uEast: east,
       uNorth: north,
       uUp: up,
+      uSkyZenith: new Cesium.Cartesian3(0.16, 0.42, 0.82),
+      uSkyHorizon: new Cesium.Cartesian3(0.72, 0.83, 0.94),
+      uCloudDensity: 0.85,
+      uCloudSpeed: 1.0,
     },
     fragmentShader: `
       uniform sampler2D colorTexture;
@@ -445,6 +457,10 @@ export function skyStage(east: Cesium.Cartesian3, north: Cesium.Cartesian3, up: 
       uniform vec3 uEast;
       uniform vec3 uNorth;
       uniform vec3 uUp;
+      uniform vec3 uSkyZenith;
+      uniform vec3 uSkyHorizon;
+      uniform float uCloudDensity;
+      uniform float uCloudSpeed;
       in vec2 v_textureCoordinates;
 
       float sh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -480,17 +496,7 @@ export function skyStage(east: Cesium.Cartesian3, north: Cesium.Cartesian3, up: 
         vec3 rd = vec3(dot(dirWC, uEast), dot(dirWC, uNorth), dot(dirWC, uUp));
         float elev = max(0.0, rd.z);
 
-        // Cielo andino limpio: azul profundo arriba, celeste en horizonte; tarde fresca de Bogotá
-        vec3 zenDia = vec3(0.16, 0.42, 0.82);
-        vec3 horDia = vec3(0.72, 0.83, 0.94);
-        vec3 zenTarde = vec3(0.18, 0.36, 0.68);
-        vec3 horTarde = vec3(0.76, 0.76, 0.82);
-        vec3 zenNoche = vec3(0.015, 0.025, 0.065);
-        vec3 horNoche = vec3(0.04, 0.06, 0.12);
-
-        vec3 zen = mix(mix(zenDia, zenTarde, uTarde), zenNoche, uNight);
-        vec3 hor = mix(mix(horDia, horTarde, uTarde), horNoche, uNight);
-        vec3 sky = mix(hor, zen, pow(elev, 0.52));
+        vec3 sky = mix(uSkyHorizon, uSkyZenith, pow(elev, 0.52));
 
         // Halo y disco solar sutil
         float sunDot = max(0.0, dot(dirWC, normalize(czm_sunDirectionWC)));
@@ -499,9 +505,9 @@ export function skyStage(east: Cesium.Cartesian3, north: Cesium.Cartesian3, up: 
         sky += vec3(1.0, 0.98, 0.92) * smoothstep(0.9992, 0.99985, sunDot) * 1.4 * (1.0 - uNight);
 
         // Nubes cúmulos proyectadas en cúpula, con desplazamiento lento por el viento
-        if (rd.z > 0.002) {
+        if (rd.z > 0.002 && uCloudDensity > 0.01) {
           vec2 uv = rd.xy / (rd.z + 0.12);
-          vec2 wind = vec2(uTime * 0.008, uTime * 0.003);
+          vec2 wind = vec2(uTime * 0.008, uTime * 0.003) * uCloudSpeed;
           float n1 = fbm(uv * 0.48 + wind);
           float n2 = fbm(uv * 1.15 - wind * 0.6 + vec2(4.2, 9.1));
           float density = smoothstep(0.45, 0.74, n1 * 0.72 + n2 * 0.34);
@@ -522,7 +528,7 @@ export function skyStage(east: Cesium.Cartesian3, north: Cesium.Cartesian3, up: 
             uNight
           );
           float horizonFade = smoothstep(0.002, 0.055, rd.z);
-          sky = mix(sky, cloudCol, density * horizonFade * 0.85);
+          sky = mix(sky, cloudCol, density * horizonFade * uCloudDensity);
         }
 
         out_FragColor = vec4(sky, src.a);
@@ -537,27 +543,35 @@ export function gradeStage(): Cesium.PostProcessStage {
     uniforms: {
       uNight: 0.0,
       uTarde: 0.0,
+      uExposure: 1.0,
+      uContrast: 0.22,
+      uSaturation: 1.06,
+      uTint: new Cesium.Cartesian3(1.0, 1.0, 1.0),
+      uVignette: 0.24,
     },
     fragmentShader: `
       uniform sampler2D colorTexture;
       uniform float uNight;
       uniform float uTarde;
+      uniform float uExposure;
+      uniform float uContrast;
+      uniform float uSaturation;
+      uniform vec3 uTint;
+      uniform float uVignette;
       in vec2 v_textureCoordinates;
       void main() {
         vec4 src = texture(colorTexture, v_textureCoordinates);
-        vec3 c = src.rgb;
+        vec3 c = src.rgb * uExposure;
         // contraste fílmico suave (curva en S en rango 0..1)
         vec3 s = c * c * (3.0 - 2.0 * c);
-        c = mix(c, s, 0.22);
-        // gradación sutil por hora: luz limpia de montaña en tarde, azul cinematográfico en noche
-        c *= mix(vec3(1.01, 1.0, 0.98), vec3(1.01, 1.00, 0.98), uTarde);
-        c *= mix(vec3(1.0), vec3(0.84, 0.90, 1.04), uNight);
-        // vibrance sutil
+        c = mix(c, s, uContrast);
+        c *= uTint;
+        // saturación / vibrance
         float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-        c = mix(vec3(l), c, mix(1.06, 0.95, uNight));
+        c = mix(vec3(l), c, uSaturation);
         // viñeta muy sutil de visor Unreal
         vec2 q = v_textureCoordinates - 0.5;
-        float vig = 1.0 - dot(q, q) * 0.24;
+        float vig = 1.0 - dot(q, q) * uVignette;
         c *= vig;
         out_FragColor = vec4(clamp(c, 0.0, 1.0), src.a);
       }
@@ -585,6 +599,9 @@ export function groundShader(base: string): Cesium.CustomShader {
     uniforms: {
       uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
       uTarde: { type: Cesium.UniformType.FLOAT, value: 0 },
+      uGroundFill: { type: Cesium.UniformType.FLOAT, value: 0.12 },
+      uHazeAmount: { type: Cesium.UniformType.FLOAT, value: 0.08 },
+      uHazeStart: { type: Cesium.UniformType.FLOAT, value: 1200.0 },
       uAsfalto: tex('tex_asfalto.webp'),
       uAnden: tex('tex_anden.webp'),
       uPrado: tex('tex_prado.webp'),
@@ -641,12 +658,12 @@ export function groundShader(base: string): Cesium.CustomShader {
         } else {                      // canal y puentes: concreto
           col = mix(vec3(0.42, 0.41, 0.39), vec3(0.50, 0.49, 0.47), big);
         }
-        float hz = hlfHaze(length(fsInput.attributes.positionEC));
+        float hz = hlfHaze(length(fsInput.attributes.positionEC), uHazeStart, uHazeAmount);
         vec3 skyFill = hlfSkyFill(material.normalEC, vUpEC, uNight, uTarde);
         material.diffuse = col * mix(1.0, 0.28, uNight) * (1.0 - hz);
         material.roughness = rough;
         material.specular = spec * (1.0 - hz);
-        material.emissive = col * skyFill * 0.12 * (1.0 - hz) + hlfHazeColor(uNight, uTarde) * hz;
+        material.emissive = col * skyFill * uGroundFill * (1.0 - hz) + hlfHazeColor(uNight, uTarde) * hz;
       }
     `,
   });

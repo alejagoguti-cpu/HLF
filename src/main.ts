@@ -6,6 +6,7 @@ import { ArchCamera } from './arch-camera';
 import { loadSite, enuToWorld, siteMatrix, type Site, type Building } from './site';
 import { createTrafico, type Trafico } from './vehiculos';
 import { gradeStage, skyStage } from './shaders';
+import { createLookStudio, hexToRgbNorm, type LookParams, type PresetId } from './look-studio';
 
 /* ============================================================
    UNICENTRO · Hotel La Fontana · visor arquitectónico
@@ -156,13 +157,36 @@ let currentTarde = 0;
 let clockTween: { from: number; to: number; start: number; dur: number } | null = null;
 const clockMs = (iso: string) => Cesium.JulianDate.toDate(Cesium.JulianDate.fromIso8601(iso)).getTime();
 
+function applyLook(p: LookParams): void {
+  (scene.light as Cesium.SunLight).intensity = p.sunIntensity;
+  (scene.light as Cesium.SunLight).color = Cesium.Color.fromCssColorString(p.sunColor);
+  sm.darkness = p.shadowDarkness;
+  ao.uniforms.intensity = p.aoIntensity;
+  bloom.uniforms.brightness = p.bloomBrightness;
+  grade.uniforms.uExposure = p.exposure;
+  grade.uniforms.uContrast = p.contrast;
+  grade.uniforms.uSaturation = p.saturation;
+  const [tr, tg, tb] = hexToRgbNorm(p.tintColor);
+  grade.uniforms.uTint = new Cesium.Cartesian3(tr, tg, tb);
+  grade.uniforms.uVignette = p.vignette;
+  const [zr, zg, zb] = hexToRgbNorm(p.skyZenith);
+  sky.uniforms.uSkyZenith = new Cesium.Cartesian3(zr, zg, zb);
+  const [hr, hg, hb] = hexToRgbNorm(p.skyHorizon);
+  sky.uniforms.uSkyHorizon = new Cesium.Cartesian3(hr, hg, hb);
+  sky.uniforms.uCloudDensity = p.cloudDensity;
+  sky.uniforms.uCloudSpeed = p.cloudSpeed;
+  site?.setLook({ skyFill: p.skyFill, groundFill: p.groundFill, hazeAmount: p.hazeAmount, hazeStart: p.hazeStart });
+}
+
+const lookStudio = createLookStudio((_id, params) => applyLook(params));
+applyLook(lookStudio.getPreset('dia'));
+
 function applyPreset(p: LightingPreset): void {
   const from = Cesium.JulianDate.toDate(viewer.clock.currentTime).getTime();
   clockTween = { from, to: clockMs(p.iso), start: performance.now(), dur: 1600 };
   scene.fog.density = p.fog;
-  (scene.light as Cesium.SunLight).intensity = p.sun;
-  (scene.light as Cesium.SunLight).color = Cesium.Color.fromCssColorString(p.color);
-  bloom.uniforms.brightness = -0.36;
+  lookStudio.setActivePreset(p.id as PresetId);
+  applyLook(lookStudio.getPreset(p.id as PresetId));
   // el cielo acompaña la hora: tarde limpia de montaña en Bogotá, profundo de noche
   if (scene.skyAtmosphere) {
     scene.skyAtmosphere.hueShift = 0;
@@ -359,6 +383,8 @@ async function boot(): Promise<void> {
   );
   site.setNight(currentNight);
   site.setTarde(currentTarde);
+  const activeId = (document.querySelector<HTMLButtonElement>('[data-light].on')?.dataset.light as PresetId) || 'dia';
+  applyLook(lookStudio.getPreset(activeId));
   applyQuality();
   progress('Listo', 1);
 

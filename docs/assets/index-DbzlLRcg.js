@@ -12,7 +12,7 @@ var It=Object.defineProperty;var _t=(e,t,i)=>t in e?It(e,t,{enumerable:!0,config
     return mix(mix(day, sunset, tarde), nite, night);
   }
   float hlfHaze(float d) {
-    return (1.0 - exp(-max(0.0, d - 800.0) * 0.00012)) * 0.14;
+    return (1.0 - exp(-max(0.0, d - 1200.0) * 0.00010)) * 0.08;
   }
   // Luz indirecta hemisférica (estilo Lumen SkyLight): cielo frío arriba, rebote cálido abajo
   vec3 hlfSkyFill(vec3 nEC, vec3 upEC, float night, float tarde) {
@@ -353,7 +353,7 @@ var It=Object.defineProperty;var _t=(e,t,i)=>t in e?It(e,t,{enumerable:!0,config
       void main() {
         vec4 src = texture(colorTexture, v_textureCoordinates);
         float depth = czm_readDepth(depthTexture, v_textureCoordinates);
-        if (depth < 0.99995) {
+        if (depth < 0.999999) {
           out_FragColor = src;
           return;
         }
@@ -384,15 +384,15 @@ var It=Object.defineProperty;var _t=(e,t,i)=>t in e?It(e,t,{enumerable:!0,config
         sky += vec3(1.0, 0.98, 0.92) * smoothstep(0.9992, 0.99985, sunDot) * 1.4 * (1.0 - uNight);
 
         // Nubes cúmulos proyectadas en cúpula, con desplazamiento lento por el viento
-        if (rd.z > 0.005) {
-          vec2 uv = rd.xy / (rd.z + 0.16);
+        if (rd.z > 0.002) {
+          vec2 uv = rd.xy / (rd.z + 0.12);
           vec2 wind = vec2(uTime * 0.008, uTime * 0.003);
-          float n1 = fbm(uv * 0.75 + wind);
-          float n2 = fbm(uv * 1.65 - wind * 0.6 + vec2(4.2, 9.1));
-          float density = smoothstep(0.47, 0.76, n1 * 0.72 + n2 * 0.34);
+          float n1 = fbm(uv * 0.48 + wind);
+          float n2 = fbm(uv * 1.15 - wind * 0.6 + vec2(4.2, 9.1));
+          float density = smoothstep(0.45, 0.74, n1 * 0.72 + n2 * 0.34);
 
           // Sombreado propio de la nube hacia el sol
-          float nSun = fbm((uv + vec2(0.05, 0.03)) * 0.75 + wind);
+          float nSun = fbm((uv + vec2(0.05, 0.03)) * 0.48 + wind);
           float lit = clamp(0.55 + (n1 - nSun) * 3.2 + sunDot * 0.25, 0.0, 1.0);
 
           vec3 cLitDia = vec3(0.99, 0.99, 1.0);
@@ -406,8 +406,8 @@ var It=Object.defineProperty;var _t=(e,t,i)=>t in e?It(e,t,{enumerable:!0,config
             cNoche,
             uNight
           );
-          float horizonFade = smoothstep(0.005, 0.14, rd.z);
-          sky = mix(sky, cloudCol, density * horizonFade * 0.88);
+          float horizonFade = smoothstep(0.002, 0.055, rd.z);
+          sky = mix(sky, cloudCol, density * horizonFade * 0.85);
         }
 
         out_FragColor = vec4(sky, src.a);

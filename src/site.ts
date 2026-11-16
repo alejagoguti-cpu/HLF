@@ -303,10 +303,10 @@ export async function loadSite(
       // iluminación IBL para reflejos en vidrios y cubiertas (protagonismo del Hotel)
       const isHotelHero = s.key === 'Hotel' || s.key === 'hotel_plazoleta' || s.key === 'hotel_cubiertas';
       model.imageBasedLighting.imageBasedLightingFactor = isHotelHero
-        ? new Cesium.Cartesian2(1.20, 0.80)
+        ? new Cesium.Cartesian2(1.0, 0.75)
         : s.kind === 'cubierta_pbr'
           ? new Cesium.Cartesian2(0.85, 0.55)
-          : new Cesium.Cartesian2(0.70, 0.40);
+          : new Cesium.Cartesian2(0.68, 0.38);
       scene.primitives.add(model);
       if (s.kind === 'arboles') treeModels.push(model);
       await new Promise<void>((resolve) => {

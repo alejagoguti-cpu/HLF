@@ -5,8 +5,42 @@
  * -> public/secciones/hotel_plazoleta.glb
  */
 import { readFileSync, copyFileSync, mkdirSync } from 'node:fs';
+import { NodeIO } from '@gltf-transform/core';
 import { Glb } from './glb-writer.mjs';
 import { generatePbrTextures } from './pbr-textures.mjs';
+
+// Leer malla real de suelo_Terreno.glb para adaptar todo el piso del lote sin Z-fighting ni huecos
+const ioTerreno = new NodeIO();
+const docTerreno = await ioTerreno.read('public/secciones/suelo_Terreno.glb');
+const terrenoTris = [];
+for (const n of docTerreno.getRoot().listNodes()) {
+  for (const p of n.getMesh()?.listPrimitives() || []) {
+    const pos = p.getAttribute('POSITION'), idx = p.getIndices();
+    const getV = (i) => { const v = [0, 0, 0]; pos.getElement(i, v); return [v[0], -v[2], v[1]]; };
+    const cnt = idx ? idx.getCount() : pos.getCount();
+    for (let i = 0; i < cnt; i += 3) {
+      const a = getV(idx ? idx.getScalar(i) : i);
+      const b = getV(idx ? idx.getScalar(i + 1) : i + 1);
+      const c = getV(idx ? idx.getScalar(i + 2) : i + 2);
+      const mnX = Math.min(a[0], b[0], c[0]), mxX = Math.max(a[0], b[0], c[0]);
+      const mnY = Math.min(a[1], b[1], c[1]), mxY = Math.max(a[1], b[1], c[1]);
+      if (mxX >= -315 && mnX <= -155 && mxY >= 248 && mnY <= 406) terrenoTris.push([a, b, c, mnX, mxX, mnY, mxY]);
+    }
+  }
+}
+
+function terrenoZ(e, n, fallback = 4.20) {
+  for (const [a, b, c, mnX, mxX, mnY, mxY] of terrenoTris) {
+    if (e < mnX || e > mxX || n < mnY || n > mxY) continue;
+    const d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+    if (Math.abs(d) < 1e-6) continue;
+    const w1 = ((b[1] - c[1]) * (e - c[0]) + (c[0] - b[0]) * (n - c[1])) / d;
+    const w2 = ((c[1] - a[1]) * (e - c[0]) + (a[0] - c[0]) * (n - c[1])) / d;
+    const w3 = 1 - w1 - w2;
+    if (w1 >= -0.02 && w2 >= -0.02 && w3 >= -0.02) return w1 * a[2] + w2 * b[2] + w3 * c[2];
+  }
+  return fallback;
+}
 
 const g = new Glb();
 const andenBytes = readFileSync('public/secciones/tex_anden.webp');
@@ -181,8 +215,37 @@ function addFoliageSprig(cx, cy, cz, rx, rz, yaw, tilt) {
 const ZP = 4.17; // Cota de la plazoleta de acceso
 const CX = -224.5; // Centro del acceso principal
 
-// 1. PISO ADOQUINADO DE LA PLAZOLETA Y ANILLOS DE PIEDRA ALREDEDOR DE LA FUENTE
-addBox('adoquin', -276, 254.5, ZP - 0.15, -195, 276.5, ZP + 0.03, 0.28);
+// 1. PISO ADOQUINADO COMPLETO DE TODO EL LOTE DEL HOTEL LA FONTANA (según terreno real + foto satelital)
+// Cubre desde Calle 127 (n=254.6) hasta lindero norte (n=398.5) y de oeste (e=-306) a este (e=-162)
+const floorZ = (e, n) => {
+  const tz = terrenoZ(e, n, ZP);
+  // En la plazoleta frontal de acceso (-272..-195, 254.6..276.5) nivelamos suavemente con ZP
+  if (e >= -272 && e <= -195 && n >= 254.6 && n <= 276.5) {
+    return Math.max(ZP + 0.03, tz + 0.06);
+  }
+  return tz + 0.08;
+};
+const E0 = -306, E1 = -162, N0 = 254.6, N1 = 398.5, STEP = 4.0;
+for (let e = E0; e < E1; e += STEP) {
+  const eNext = Math.min(E1, e + STEP);
+  for (let n = N0; n < N1; n += STEP) {
+    const nNext = Math.min(N1, n + STEP);
+    const z00 = floorZ(e, n), z10 = floorZ(eNext, n), z11 = floorZ(eNext, nNext), z01 = floorZ(e, nNext);
+    const uvS = 0.28;
+    addQuad('adoquin',
+      [e, n, z00], [eNext, n, z10], [eNext, nNext, z11], [e, nNext, z01],
+      [e * uvS, n * uvS], [eNext * uvS, n * uvS], [eNext * uvS, nNext * uvS], [e * uvS, nNext * uvS]);
+  }
+}
+// Franjas diagonales de piedra en la plazoleta oriental (visible en la foto aérea al este de la torre SE)
+for (let k = 0; k < 4; k++) {
+  const bx = -182 + k * 4.5, by = 258 + k * 5.0;
+  const zA = floorZ(bx, by) + 0.03, zB = floorZ(bx + 12, by + 6) + 0.03;
+  addQuad('materaBeige',
+    [bx, by, zA], [bx + 12, by + 6, zB], [bx + 11.4, by + 7.1, zB], [bx - 0.6, by + 1.1, zA],
+    [0, 0], [3, 0], [3, 0.3], [0, 0.3]);
+}
+// Anillos concéntricos alrededor de la fuente (-225, 263.5)
 for (const rad of [5.4, 7.6, 9.8]) {
   const SEG = 36;
   for (let i = 0; i < SEG; i++) {
@@ -191,7 +254,8 @@ for (const rad of [5.4, 7.6, 9.8]) {
     const x1 = -225 + Math.cos(a1) * rad, y1 = 263.5 + Math.sin(a1) * rad;
     const x0o = -225 + Math.cos(a0) * (rad + 0.25), y0o = 263.5 + Math.sin(a0) * (rad + 0.25);
     const x1o = -225 + Math.cos(a1) * (rad + 0.25), y1o = 263.5 + Math.sin(a1) * (rad + 0.25);
-    addQuad('ladrillo', [x0, y0, ZP + 0.045], [x1, y1, ZP + 0.045], [x1o, y1o, ZP + 0.045], [x0o, y0o, ZP + 0.045], [0, 0], [0.4, 0], [0.4, 0.2], [0, 0.2]);
+    const zR = floorZ(x0, y0) + 0.025;
+    addQuad('ladrillo', [x0, y0, zR], [x1, y1, zR], [x1o, y1o, zR], [x0o, y0o, zR], [0, 0], [0.4, 0], [0.4, 0.2], [0, 0.2]);
   }
 }
 
@@ -241,14 +305,34 @@ for (const side of [-1, 1]) {
   }
 }
 
-// 5. REJAS PERIMETRALES NEGRAS Y SARDINEL EN EL ESPACIO PÚBLICO (n ≈ 254.6)
+// 5. REJAS PERIMETRALES NEGRAS Y SARDINEL EN TODO EL FRENTE Y COSTADOS DEL HOTEL
 const nReja = 254.6;
-addBox('ladrillo', -276, nReja - 0.22, ZP - 0.1, -196, nReja + 0.22, ZP + 0.32, 0.5);
-addBox('hierro', -276, nReja - 0.04, ZP + 0.42, -196, nReja + 0.04, ZP + 0.48, 0.5);
-addBox('hierro', -276, nReja - 0.04, ZP + 1.55, -196, nReja + 0.04, ZP + 1.62, 0.5);
-for (let x = -276; x <= -196; x += 0.44) {
-  if (x > -255 && x < -244) continue;
-  addCylinder('hierro', x, nReja, ZP + 0.32, ZP + 1.68, 0.022, 0.018, 6, 0.5, true);
+for (let x = -305; x < -163; x += 4.0) {
+  const x1 = Math.min(-163, x + 4.0);
+  const z0 = floorZ(x, nReja), z1 = floorZ(x1, nReja);
+  const zM = Math.max(z0, z1);
+  addBox('ladrillo', x, nReja - 0.22, zM - 0.25, x1, nReja + 0.22, zM + 0.30, 0.5);
+  addBox('hierro', x, nReja - 0.04, zM + 0.40, x1, nReja + 0.04, zM + 0.46, 0.5);
+  addBox('hierro', x, nReja - 0.04, zM + 1.53, x1, nReja + 0.04, zM + 1.60, 0.5);
+}
+for (let x = -305; x <= -163; x += 0.44) {
+  if (x > -255 && x < -244) continue; // Acceso vehicular
+  const zx = floorZ(x, nReja);
+  addCylinder('hierro', x, nReja, zx + 0.30, zx + 1.66, 0.022, 0.018, 6, 0.5, true);
+}
+// Retornos laterales de reja (costado este x=-163 y costado oeste x=-305)
+for (const [fx, yMax] of [[-163, 296], [-305, 285]]) {
+  for (let y = nReja; y < yMax; y += 4.0) {
+    const y1 = Math.min(yMax, y + 4.0);
+    const zM = Math.max(floorZ(fx, y), floorZ(fx, y1));
+    addBox('ladrillo', fx - 0.22, y, zM - 0.25, fx + 0.22, y1, zM + 0.30, 0.5);
+    addBox('hierro', fx - 0.04, y, zM + 0.40, fx + 0.04, y1, zM + 0.46, 0.5);
+    addBox('hierro', fx - 0.04, y, zM + 1.53, fx + 0.04, y1, zM + 1.60, 0.5);
+  }
+  for (let y = nReja; y <= yMax; y += 0.44) {
+    const zy = floorZ(fx, y);
+    addCylinder('hierro', fx, y, zy + 0.30, zy + 1.66, 0.022, 0.018, 6, 0.5, true);
+  }
 }
 
 // 6. PÉRGOLA METÁLICA, PARASOL GIGANTE, MESAS BISTRÓ Y MATERAS DEL PATIO IZQUIERDO

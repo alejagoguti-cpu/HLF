@@ -110,8 +110,9 @@ function revitShader(ladrillo: Cesium.TextureUniform, teja: Cesium.TextureUnifor
         if (cat < 20.0) {
           // fachada: ladrillo a la vista real (foto), con variación de tono por paños
           float along = abs(n.x) > abs(n.z) ? vRP.z : vRP.x;
-          vec3 ladr = foto(uLadrillo, vec2(along, vRP.y) / 1.5, vec3(0.34, 0.135, 0.075), 0.75);
-          ladr *= 0.88 + 0.24 * big;
+          // ladrillo real del hotel: la foto tal cual, a escala (≈5 piezas de 25 cm por 1,3 m)
+          vec3 ladr = czm_srgbToLinear(texture(uLadrillo, vec2(along, vRP.y) / 1.28).rgb);
+          ladr *= 0.9 + 0.18 * big;   // paños un poco más tostados o claros, como en la obra
           // coronación del muro cortado (planta): pañete claro
           col = mix(vec3(0.62, 0.60, 0.55), ladr, vertical);
           rough = 0.9;
@@ -210,7 +211,7 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
   } catch {
     return null;
   }
-  const [ladrillo, teja] = await Promise.all([pixels(base + 'tex_ladrillo.webp', [107, 84, 76]), pixels(base + 'tex_teja.webp', [90, 52, 28])]);
+  const [ladrillo, teja] = await Promise.all([pixels(base + 'tex_ladrillo_hlf.webp', [190, 112, 74]), pixels(base + 'tex_teja.webp', [90, 52, 28])]);
   const shader = revitShader(ladrillo, teja);
   const niveles: Nivel[] = [];
   for (const info of man.niveles) {

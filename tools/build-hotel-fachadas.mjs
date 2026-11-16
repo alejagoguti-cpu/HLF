@@ -33,7 +33,7 @@ let seed = 4242;
 const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
 
 const g = new Glb();
-const ladrilloBytes = readFileSync('public/secciones/tex_ladrillo.webp');
+const ladrilloBytes = readFileSync('public/secciones/tex_ladrillo_hlf.webp'); // ladrillo real del hotel (naranja, junta clara)
 const ladrilloTexIdx = g.image(ladrilloBytes, 'image/webp');
 g.j.samplers[0].wrapS = 10497;
 g.j.samplers[0].wrapT = 10497;
@@ -46,7 +46,7 @@ const mats = {
       doubleSided: true,
       pbrMetallicRoughness: {
         baseColorTexture: { index: ladrilloTexIdx },
-        baseColorFactor: [0.96, 0.82, 0.74, 1],
+        baseColorFactor: [0.8, 0.72, 0.68, 1],
         metallicFactor: 0.0,
         roughnessFactor: 0.86,
       },
@@ -66,7 +66,7 @@ const mats = {
   },
   vidrio: {
     P: [], N: [], UV: [], I: [], n: 0, hasUV: false,
-    def: { name: 'VidrioHotel', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.18, 0.26, 0.32, 1], metallicFactor: 0.18, roughnessFactor: 0.06 }, emissiveFactor: [0.04, 0.04, 0.045] },
+    def: { name: 'VidrioHotel', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.05, 0.065, 0.075, 1], metallicFactor: 0.0, roughnessFactor: 0.03 }, emissiveFactor: [0.015, 0.018, 0.02] },
   },
   hoja1: {
     P: [], N: [], UV: [], I: [], n: 0, hasUV: false,

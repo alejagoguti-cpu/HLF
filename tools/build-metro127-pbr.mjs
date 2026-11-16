@@ -116,12 +116,18 @@ const pCelosia = makePbrSet((u, v) => {
   return [c, c * 0.98, c * 0.90, 0.38, 0.72, 0.5 + slat * 0.4];
 }, 128, 3.0);
 
-// 3. Muro cortina vidrio reflectivo PBR
+// 3. Muro cortina vidrio reflectivo PBR con gradiente de cielo e interior cálido
 const pVidrio = makePbrSet((u, v) => {
-  const m = (u < 0.03 || u > 0.97 || Math.abs(u - 0.5) < 0.02 || v < 0.04 || v > 0.96);
-  if (m) return [0.55, 0.58, 0.62, 0.28, 0.85, 0.9];
-  const refl = 0.07 * Math.sin((u + v) * 6.28);
-  return [0.18 + refl, 0.28 + refl, 0.36 + refl, 0.05, 0.42, 0.2];
+  const m = (u < 0.025 || u > 0.975 || Math.abs(u - 0.5) < 0.015 || v < 0.03 || v > 0.97);
+  if (m) return [0.55, 0.58, 0.62, 0.25, 0.88, 0.9];
+  const skyGrad = Math.max(0, 1.0 - v * 1.15);
+  const warmInt = (Math.sin(u * 12.56) * 0.5 + 0.5) * 0.14 * (1.0 - skyGrad);
+  return [
+    0.16 + skyGrad * 0.26 + warmInt * 1.2,
+    0.25 + skyGrad * 0.32 + warmInt * 0.95,
+    0.34 + skyGrad * 0.38 + warmInt * 0.55,
+    0.04, 0.48, 0.2,
+  ];
 });
 
 // 4. Zócalo / carpa negra y blanco arquitectónico

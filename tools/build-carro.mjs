@@ -53,8 +53,8 @@ function makeVehicleTextures() {
     return [128 + n, 128 - n, 255, 255];
   });
   const paintMr = make((u, v) => {
-    const f = ((Math.sin(u * 62.8) * Math.cos(v * 62.8)) * 0.5 + 0.5) * 14;
-    return [0, Math.round(46 + f), 140, 255]; // roughness ~0.18-0.23, metallic ~0.55
+    const f = ((Math.sin(u * 62.8) * Math.cos(v * 62.8)) * 0.5 + 0.5) * 10;
+    return [0, Math.round(36 + f), 182, 255]; // clearcoat brillante roughness ~0.14-0.18, metallic ~0.71
   });
   // Normal mapa de labrado de llanta
   const tireNorm = make((u, v) => {

@@ -64,12 +64,18 @@ function makeTowerPbrMaps() {
     const c = (0.73 + n) * joint;
     return [c, c * 1.01, c * 1.02, 0.78, 0.0, joint * 0.7 + n * 2];
   });
-  // 3. Vidrio reflectivo real de torre con retícula sutil de paños
+  // 3. Vidrio reflectivo real de torre con gradiente de cielo e interior cálido
   const vid = make((u, v) => {
-    const pane = (u < 0.03 || u > 0.97 || Math.abs(u - 0.5) < 0.02 || v < 0.04 || v > 0.96);
-    if (pane) return [0.16, 0.18, 0.20, 0.38, 0.75, 0.9];
-    const refl = 0.06 * Math.sin((u + v) * 6.28);
-    return [0.18 + refl, 0.26 + refl, 0.32 + refl, 0.05, 0.35, 0.2];
+    const pane = (u < 0.025 || u > 0.975 || Math.abs(u - 0.5) < 0.015 || v < 0.03 || v > 0.97);
+    if (pane) return [0.16, 0.18, 0.20, 0.32, 0.80, 0.9];
+    const skyGrad = Math.max(0, 1.0 - v * 1.15);
+    const warmInt = (Math.sin(u * 12.56) * 0.5 + 0.5) * 0.14 * (1.0 - skyGrad);
+    return [
+      0.16 + skyGrad * 0.25 + warmInt * 1.2,
+      0.24 + skyGrad * 0.30 + warmInt * 0.95,
+      0.32 + skyGrad * 0.36 + warmInt * 0.55,
+      0.04, 0.45, 0.2,
+    ];
   });
   // 4. Aluminio/hierro oscuro
   const met = make((u, v) => {

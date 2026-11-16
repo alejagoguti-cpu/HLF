@@ -9,9 +9,42 @@
  */
 import earcut from 'earcut';
 import { readFileSync, copyFileSync, mkdirSync } from 'node:fs';
+import { NodeIO } from '@gltf-transform/core';
 import { Glb } from './glb-writer.mjs';
 import { encodePng } from './pbr-textures.mjs';
 import { CONSTRUCTORES } from '../../.gemini/antigravity/scratch/vehiculos-colombia/vehiculos.js';
+
+// Leer malla de suelo_Andenes.glb / suelo_Terreno.glb para apoyar vehículos parqueados sobre el pavimento real
+const ioSuelo = new NodeIO();
+const docAnden = await ioSuelo.read('public/secciones/suelo_Andenes.glb');
+const sueloTris = [];
+for (const n of docAnden.getRoot().listNodes()) {
+  for (const p of n.getMesh()?.listPrimitives() || []) {
+    const pos = p.getAttribute('POSITION'), idx = p.getIndices();
+    const getV = (i) => { const v = [0, 0, 0]; pos.getElement(i, v); return [v[0], -v[2], v[1]]; };
+    const cnt = idx ? idx.getCount() : pos.getCount();
+    for (let i = 0; i < cnt; i += 3) {
+      const a = getV(idx ? idx.getScalar(i) : i);
+      const b = getV(idx ? idx.getScalar(i + 1) : i + 1);
+      const c = getV(idx ? idx.getScalar(i + 2) : i + 2);
+      const mnX = Math.min(a[0], b[0], c[0]), mxX = Math.max(a[0], b[0], c[0]);
+      const mnY = Math.min(a[1], b[1], c[1]), mxY = Math.max(a[1], b[1], c[1]);
+      if (mxX >= -140 && mnX <= -100 && mxY >= 235 && mnY <= 285) sueloTris.push([a, b, c, mnX, mxX, mnY, mxY]);
+    }
+  }
+}
+function sueloZ(e, n, fallback = 4.65) {
+  for (const [a, b, c, mnX, mxX, mnY, mxY] of sueloTris) {
+    if (e < mnX || e > mxX || n < mnY || n > mxY) continue;
+    const d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+    if (Math.abs(d) < 1e-6) continue;
+    const w1 = ((b[1] - c[1]) * (e - c[0]) + (c[0] - b[0]) * (n - c[1])) / d;
+    const w2 = ((c[1] - a[1]) * (e - c[0]) + (a[0] - c[0]) * (n - c[1])) / d;
+    const w3 = 1 - w1 - w2;
+    if (w1 >= -0.05 && w2 >= -0.05 && w3 >= -0.05) return w1 * a[2] + w2 * b[2] + w3 * c[2];
+  }
+  return fallback;
+}
 
 const DATA = JSON.parse(readFileSync('public/secciones/edificios.json', 'utf8'));
 const IDS = new Set([2269, 365, 171, 165, 358, 162, 164, 1364, 1375]);
@@ -124,10 +157,17 @@ const pFach = makePbrSet((u, v) => {
   return [(0.74 + g) * j, (0.54 + g) * j, (0.34 + g) * j, 0.62, 0.05, j * 0.75];
 });
 const pVid = makePbrSet((u, v) => {
-  const mullion = (u < 0.03 || u > 0.97 || Math.abs(u - 0.5) < 0.02 || v < 0.04 || v > 0.96);
-  if (mullion) return [0.14, 0.15, 0.17, 0.35, 0.80, 0.9];
-  const refl = 0.06 * Math.sin((u + v) * 6.28);
-  return [0.16 + refl, 0.24 + refl, 0.30 + refl, 0.05, 0.38, 0.2];
+  const mullion = (u < 0.025 || u > 0.975 || Math.abs(u - 0.5) < 0.015 || v < 0.03 || v > 0.97);
+  if (mullion) return [0.16, 0.17, 0.19, 0.30, 0.85, 0.9];
+  // Gradiente realista: reflejo de cielo azul/cálido arriba + profundidad interior cálida abajo
+  const skyGrad = Math.max(0, 1.0 - v * 1.15);
+  const warmInt = (Math.sin(u * 12.56) * 0.5 + 0.5) * 0.12 * (1.0 - skyGrad);
+  return [
+    0.16 + skyGrad * 0.24 + warmInt * 1.2,
+    0.24 + skyGrad * 0.30 + warmInt * 0.95,
+    0.32 + skyGrad * 0.36 + warmInt * 0.55,
+    0.04, 0.48, 0.2,
+  ];
 });
 
 const g = new Glb();
@@ -169,10 +209,12 @@ const mats = {
   panpaya: mkMat('CartelPanPaYa', tPanPaYa, null, null, [1, 1, 1, 1], 0.0, { emissiveFactor: [0.18, 0.04, 0.04] }),
   olimpica: mkMat('CartelOlimpica', tOlimpica, null, null, [1, 1, 1, 1], 0.0, { emissiveFactor: [0.04, 0.08, 0.18] }),
   universae: mkMat('VallaUniversae', tUniversae, null, null, [1, 1, 1, 1], 0.0, { emissiveFactor: [0.08, 0.12, 0.22] }),
-  pinturaRoja: { P: [], N: [], UV: [], I: [], n: 0, def: { name: 'VehiculoRojoPBR', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.76, 0.12, 0.12, 1], metallicFactor: 0.65, roughnessFactor: 0.22 } } },
-  pinturaAzul: { P: [], N: [], UV: [], I: [], n: 0, def: { name: 'VehiculoAzulPBR', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.14, 0.28, 0.56, 1], metallicFactor: 0.65, roughnessFactor: 0.22 } } },
-  pinturaPlata: { P: [], N: [], UV: [], I: [], n: 0, def: { name: 'VehiculoPlataPBR', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.78, 0.80, 0.83, 1], metallicFactor: 0.72, roughnessFactor: 0.20 } } },
-  llanta: { P: [], N: [], UV: [], I: [], n: 0, def: { name: 'LlantaCauchoPBR', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.11, 0.12, 0.13, 1], metallicFactor: 0.0, roughnessFactor: 0.88 } } },
+  pinturaRoja: { P: [], N: [], UV: [], I: [], n: 0, def: { name: 'VehiculoRojoPBR', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.80, 0.10, 0.12, 1], metallicFactor: 0.72, roughnessFactor: 0.16 } } },
+  pinturaAzul: { P: [], N: [], UV: [], I: [], n: 0, def: { name: 'VehiculoAzulPBR', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.12, 0.30, 0.65, 1], metallicFactor: 0.72, roughnessFactor: 0.16 } } },
+  pinturaPlata: { P: [], N: [], UV: [], I: [], n: 0, def: { name: 'VehiculoPlataPBR', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.82, 0.84, 0.88, 1], metallicFactor: 0.78, roughnessFactor: 0.16 } } },
+  pinturaBlanca: { P: [], N: [], UV: [], I: [], n: 0, def: { name: 'VehiculoBlancoPBR', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.94, 0.94, 0.95, 1], metallicFactor: 0.55, roughnessFactor: 0.18 } } },
+  rinAluminio: { P: [], N: [], UV: [], I: [], n: 0, def: { name: 'RinAluminioPBR', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.86, 0.88, 0.92, 1], metallicFactor: 0.95, roughnessFactor: 0.18 } } },
+  llanta: { P: [], N: [], UV: [], I: [], n: 0, def: { name: 'LlantaCauchoPBR', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.10, 0.11, 0.12, 1], metallicFactor: 0.0, roughnessFactor: 0.88 } } },
 };
 
 function addQuad(mat, a, b, c, d, uva = [0, 0], uvb = [1, 0], uvc = [1, 1], uvd = [0, 1]) {
@@ -206,7 +248,7 @@ function placeVehiculosModel(tipo, cx, cy, cz, yawRad, paintMat) {
   const geoms = CONSTRUCTORES[tipo](0);
   const cyaw = Math.cos(yawRad), syaw = Math.sin(yawRad);
   for (const [k, geo] of Object.entries(geoms)) {
-    const mat = k === 'glass' ? 'vidrio' : k === 'rubber' ? 'llanta' : (k === 'body' ? paintMat : 'oscuro');
+    const mat = k === 'glass' ? 'vidrio' : k === 'rubber' ? 'llanta' : (k === 'rim' || k === 'chrome') ? 'rinAluminio' : (k === 'body' ? paintMat : 'oscuro');
     const m = mats[mat];
     const pos = geo.attributes.position, nrm = geo.attributes.normal, idx = geo.index;
     const base = m.n;
@@ -308,38 +350,46 @@ for (const b of BLDS) {
   }
 }
 
-// ELEMENTOS ESQUINEROS REALES DE 1272 Ak 15 (edificio 2269):
+// ELEMENTOS ESQUINEROS REALES DE 1272 Ak 15 (pegados a la fachada real de 2269, sin flotar ni invertirse):
 const ZC = 4.23;
-// 1. Carteles "Pan Pa' Ya!" en esquina SO (-124.3, 240.7) y "OLIMPICA" sobre Ak 15
-addQuad('panpaya', [-124.6, 244.5, ZC + 2.45], [-124.6, 255.0, ZC + 2.45], [-124.6, 255.0, ZC + 3.65], [-124.6, 244.5, ZC + 3.65], [0, 1], [1, 1], [1, 0], [0, 0]);
-addQuad('panpaya', [-124.4, 240.4, ZC + 2.45], [-115.0, 240.4, ZC + 2.45], [-115.0, 240.4, ZC + 3.65], [-124.4, 240.4, ZC + 3.65], [0, 1], [1, 1], [1, 0], [0, 0]);
-addQuad('olimpica', [-124.6, 256.5, ZC + 2.45], [-124.6, 269.0, ZC + 2.45], [-124.6, 269.0, ZC + 3.65], [-124.6, 256.5, ZC + 3.65], [0, 1], [1, 1], [1, 0], [0, 0]);
+const addWallSign = (mat, x0, y0, x1, y1, z0, z1) => {
+  const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1;
+  // Normal exterior hacia la calle (+ny, -nx)
+  const nx = -dy / L * 0.18, ny = dx / L * 0.18;
+  addQuad(mat, [x0 + nx, y0 + ny, z0], [x1 + nx, y1 + ny, z0], [x1 + nx, y1 + ny, z1], [x0 + nx, y0 + ny, z1], [0, 1], [1, 1], [1, 0], [0, 0]);
+};
+// 1. OLIMPICA en cara occidental (-121.32, 272.22 -> -121.81, 259.67), leyendo de Norte (izq) a Sur (der)
+addWallSign('olimpica', -121.38, 271.2, -121.76, 260.4, ZC + 2.35, ZC + 3.45);
+// 2. PAN PA' YA! en la esquina real (-118.82, 259.54 -> -119.05, 253.55 -> -110.17, 253.20)
+addWallSign('panpaya', -118.84, 259.1, -119.03, 253.8, ZC + 2.35, ZC + 3.45);
+addWallSign('panpaya', -118.8, 253.54, -110.5, 253.22, ZC + 2.35, ZC + 3.45);
 
-// 2. Valla publicitaria alta "UNIVERSAE" en la esquina
-addBox('oscuro', -121.2, 245.5, ZC + 3.2, -120.7, 246.0, ZC + 11.2, 0.5);
-addQuad('universae', [-124.5, 244.8, ZC + 10.2], [-117.5, 244.8, ZC + 10.2], [-117.5, 244.8, ZC + 14.0], [-124.5, 244.8, ZC + 14.0], [0, 1], [1, 1], [1, 0], [0, 0]);
-addQuad('universae', [-117.5, 245.1, ZC + 10.2], [-124.5, 245.1, ZC + 10.2], [-124.5, 245.1, ZC + 14.0], [-117.5, 245.1, ZC + 14.0], [0, 1], [1, 1], [1, 0], [0, 0]);
+// 3. Valla publicitaria alta "UNIVERSAE" sobre el techo de la esquina
+addBox('oscuro', -117.2, 256.8, ZC + 3.1, -116.7, 257.3, ZC + 10.6, 0.5);
+addQuad('universae', [-120.2, 256.6, ZC + 9.6], [-113.8, 256.6, ZC + 9.6], [-113.8, 256.6, ZC + 13.0], [-120.2, 256.6, ZC + 13.0], [0, 1], [1, 1], [1, 0], [0, 0]);
+addQuad('universae', [-113.8, 256.9, ZC + 9.6], [-120.2, 256.9, ZC + 9.6], [-120.2, 256.9, ZC + 13.0], [-113.8, 256.9, ZC + 13.0], [0, 1], [1, 1], [1, 0], [0, 0]);
 
-// 3. Motos parqueadas en fila frente a Pan Pa' Ya! (8 motos)
+// 4. Motos parqueadas sobre el pavimento real frente a Pan Pa' Ya! (8 motos)
 const motoColors = ['pinturaRoja', 'pinturaAzul', 'oscuro', 'pinturaPlata'];
 for (let i = 0; i < 8; i++) {
-  placeVehiculosModel('moto', -126.2, 243.5 + i * 1.35, ZC - 0.05, Math.PI * 0.42, motoColors[i % motoColors.length]);
+  const mx = -121.4, my = 254.0 + i * 0.72;
+  placeVehiculosModel('moto', mx, my, sueloZ(mx, my) + 0.04, Math.PI * 0.42, motoColors[i % motoColors.length]);
 }
 
-// 4. Carros parqueados frente a Olímpica / Lavandería (5 carros)
+// 5. Carros parqueados sobre el pavimento real frente a Olímpica / Lavandería (5 carros)
 const carSpecs = [
-  ['sedan', -126.8, 256.0, 'pinturaRoja'],
-  ['suv', -126.8, 258.8, 'pinturaPlata'],
-  ['hatch', -126.8, 261.6, 'pinturaAzul'],
-  ['sedan', -126.8, 264.4, 'oscuro'],
-  ['suv', -126.8, 267.2, 'pinturaPlata'],
+  ['sedan', -124.2, 260.8, 'pinturaRoja'],
+  ['suv', -124.2, 263.4, 'pinturaPlata'],
+  ['hatch', -124.2, 266.0, 'pinturaBlanca'],
+  ['sedan', -124.2, 268.6, 'pinturaAzul'],
+  ['suv', -124.2, 271.2, 'pinturaPlata'],
 ];
 for (const [tp, cx, cy, col] of carSpecs) {
-  placeVehiculosModel(tp, cx, cy, ZC - 0.05, Math.PI * 0.5, col);
+  placeVehiculosModel(tp, cx, cy, sueloZ(cx, cy) + 0.04, Math.PI * 0.5, col);
 }
 
-// 5. Bicicleta parqueada junto al local
-placeVehiculosModel('bici', -125.1, 269.6, ZC - 0.02, 0.15, 'pinturaAzul');
+// 6. Bicicleta parqueada junto al local
+placeVehiculosModel('bici', -122.6, 272.2, sueloZ(-122.6, 272.2) + 0.04, 0.15, 'pinturaAzul');
 
 const prims = [];
 for (const [, m] of Object.entries(mats)) {

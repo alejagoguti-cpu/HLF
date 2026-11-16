@@ -14,8 +14,9 @@ import type { LookParams } from './look-studio';
 export type Clima = 'sol' | 'nublado' | 'lluvia';
 
 /** Filtros de imagen (como en una cámara): se aplican encima de la luz de la hora y el clima. */
-export type Filtro = 'natural' | 'calido' | 'claro' | 'cine' | 'dramatico' | 'panel';
+export type Filtro = 'planos' | 'natural' | 'calido' | 'claro' | 'cine' | 'dramatico' | 'panel';
 export const FILTROS: Record<Exclude<Filtro, 'panel'>, { nombre: string; o: Partial<LookParams>; sol?: number }> = {
+  planos:    { nombre: 'Planos finales', o: { exposure: 1.06, contrast: 0.18, saturation: 1.08, tintColor: '#fff8f0', vignette: 0.1, shadowDarkness: 0.36, bloomBrightness: -0.65, skyFill: 0.34, groundFill: 0.18, skyZenith: '#5f86b3', skyHorizon: '#d9dee0', hazeAmount: 0.06, hazeStart: 600 }, sol: 1.0 },
   natural:   { nombre: 'Natural',        o: { exposure: 1.04, contrast: 0.2, saturation: 1.05, tintColor: '#ffffff', vignette: 0.18, shadowDarkness: 0.45, bloomBrightness: -0.6 } },
   calido:    { nombre: 'Cálido',         o: { exposure: 1.06, contrast: 0.24, saturation: 1.14, tintColor: '#fff0dc', vignette: 0.25, shadowDarkness: 0.42, bloomBrightness: -0.5 }, sol: 1.05 },
   claro:     { nombre: 'Render claro',   o: { exposure: 1.16, contrast: 0.1, saturation: 0.96, tintColor: '#fbfcff', vignette: 0.08, shadowDarkness: 0.28, bloomBrightness: -0.7 } },
@@ -159,7 +160,8 @@ export function crearPanelTiempo(opts: {
     .tiempo { position: fixed; left: 50%; transform: translateX(-50%); bottom: 82px; z-index: 6; display: flex; align-items: center; gap: 10px;
       padding: 8px 12px; border-radius: 14px; background: rgba(12,16,22,.62); border: 1px solid rgba(255,255,255,.13);
       backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); color: #eef2f7;
-      font: 500 12px ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif; width: min(820px, calc(100vw - 24px)); }
+      font: 500 12px ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif; width: auto; }
+    .tiempo .lbl { color: rgba(238,242,247,.6); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; padding-left: 4px; }
     .tiempo button { all: unset; cursor: pointer; padding: 6px 10px; border-radius: 9px; color: rgba(238,242,247,.75); white-space: nowrap; }
     .tiempo button:hover { background: rgba(255,255,255,.08); color: #fff; }
     .tiempo button.on { background: #e8eef6; color: #0a0e14; font-weight: 600; }
@@ -174,17 +176,12 @@ export function crearPanelTiempo(opts: {
   document.head.appendChild(st);
   const el = document.createElement('div');
   el.className = 'tiempo';
+  // solo el selector de filtros (la hora queda fija y el clima soleado)
   el.innerHTML = `
-    <button class="play" title="Reproducir el paso del día">❚❚</button>
-    <input type="range" min="5" max="21" step="0.05" aria-label="Hora del día">
-    <span class="h">10:10</span>
-    <span class="sep"></span>
-    <button data-clima="sol" class="on" title="Día soleado">☀ Soleado</button>
-    <button data-clima="nublado" title="Cielo nublado">☁ Nublado</button>
-    <button data-clima="lluvia" title="Lluvia">☂ Lluvia</button>
-    <span class="sep"></span>
+    <span class="lbl">Filtro</span>
     <select aria-label="Filtro de imagen" title="Filtro de imagen">
-      <option value="natural" selected>Natural</option>
+      <option value="planos" selected>Planos finales</option>
+      <option value="natural">Natural</option>
       <option value="calido">Cálido</option>
       <option value="claro">Render claro</option>
       <option value="cine">Cinematográfico</option>
@@ -192,9 +189,9 @@ export function crearPanelTiempo(opts: {
       <option value="panel">Ajuste manual</option>
     </select>`;
   document.body.appendChild(el);
-  const range = el.querySelector('input') as HTMLInputElement;
-  const lab = el.querySelector('.h') as HTMLSpanElement;
-  const play = el.querySelector('.play') as HTMLButtonElement;
+  const range = (el.querySelector('input') ?? document.createElement('input')) as HTMLInputElement;
+  const lab = (el.querySelector('.h') ?? document.createElement('span')) as HTMLSpanElement;
+  const play = (el.querySelector('.play') ?? document.createElement('button')) as HTMLButtonElement;
   const sel = el.querySelector('select') as HTMLSelectElement;
   sel.addEventListener('change', () => opts.onFiltro(sel.value as Filtro));
   range.value = String(opts.hora);

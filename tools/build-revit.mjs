@@ -57,6 +57,16 @@ let box = [1e9, 1e9, -1e9, -1e9];
  */
 const levels = [];
 const TRIS = []; // [x0,y0,z0, x1,y1,z1, x2,y2,z2] en coords de Revit + color
+const toEnu = ([rx, ry, rz]) => {
+  const X = (rx - A.rx) * CT - (ry - A.ry) * ST;
+  const Y = (rx - A.rx) * ST + (ry - A.ry) * CT;
+  const mx = X + A.cx, my = Y + A.cy;
+  const e = (mx * CA - my * SA) * S;
+  const n = (mx * SA + my * CA) * S;
+  const u = rz + A.z;
+  return [e, n, u];
+};
+
 for (let i = 0; i < 12; i++) {
   const f = `build/revit/nivel_${i}.json`;
   if (!existsSync(f)) continue;
@@ -80,6 +90,17 @@ for (let i = 0; i < 12; i++) {
         const alto = Math.hypot(cx, cy, cz) / Math.max(ab, bc, ca);
         if (cat !== 'puertas' ? alto < 0.12 : alto < 0.1) col = [20, 20, 22, 72];
       }
+      // Marquesina / pérgola de acceso principal en fachada sur: estructura en hierro negro mate
+      if (cat === 'vigas' || cat === 'cubiertas' || cat === 'columnas' || cat === 'montantes') {
+        const enu0 = toEnu(v[0]), enu1 = toEnu(v[1]), enu2 = toEnu(v[2]);
+        const ce = (enu0[0] + enu1[0] + enu2[0]) / 3;
+        const cn = (enu0[1] + enu1[1] + enu2[1]) / 3;
+        const cu = (enu0[2] + enu1[2] + enu2[2]) / 3;
+        const nWall = 277.20 + (ce - (-241.31)) * (6.58 / 33.98);
+        if (ce >= -227.5 && ce <= -211.5 && cu >= 4.0 && cu <= 8.5 && cn <= nWall + 0.35) {
+          col = [20, 20, 22, 72];
+        }
+      }
       if (m.codes) {
         const cc = m.codes[m.T[t]];
         col = cc === 240 ? [150, 78, 52, cc] : cc === 250 ? [44, 70, 34, cc] : cc === 251 ? [64, 98, 46, cc] : [92, 128, 60, cc];
@@ -95,7 +116,8 @@ for (let i = 0; i < 12; i++) {
     return [X * CT + Y * ST + A.rx, -X * ST + Y * CT + A.ry, u - A.z];
   };
   const COL = { 10: [152, 86, 62, 10], 30: [176, 172, 164, 30], 50: [166, 96, 70, 50], 70: [150, 172, 186, 70], 72: [20, 20, 22, 72] };
-  const t = esquinaOeste();
+  const t = []; // esquina retirada a pedido (se conserva esquinaOeste() en tools/esquina.mjs)
+  void esquinaOeste;
   for (const { v, code } of t) TRIS.push({ v: v.map(inv), col: COL[code], cat: 'esquina' });
   console.log('esquina oeste:', t.length, 'triángulos');
 }

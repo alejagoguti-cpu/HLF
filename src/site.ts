@@ -30,7 +30,7 @@ export interface Building {
 interface SectionInfo {
   key: string;
   file: string;
-  kind: 'edificios' | 'arboles' | 'cubierta' | 'cubierta_pbr' | 'suelo';
+  kind: 'edificios' | 'arboles' | 'arbol3d' | 'cubierta' | 'cubierta_pbr' | 'suelo';
   capa?: number;
   atlas?: string;
   marco?: number;
@@ -194,9 +194,28 @@ export async function loadSite(
     label: TREE_LABEL[s.key] ?? 'Vegetación',
     dist: 0,
   }));
-  const queue: SectionInfo[] = [...ground, ...list.slice(0, 4), ...trees.slice(0, 3), ...list.slice(4, 9), ...trees.slice(3), ...list.slice(9)];
+  // árboles 3D escaneados (como en planosfinales) alrededor del hotel
+  let arb3d: { key: string; file: string }[] = [];
+  try { arb3d = ((await fetch(base + 'arboles3d.json').then((r) => r.json())) as { secciones: { key: string; file: string }[] }).secciones; } catch { /* sin árboles 3D */ }
+  const trees3d: SectionInfo[] = arb3d.map((t) => ({ key: '3d_' + t.key, file: t.file, kind: 'arbol3d', label: 'Arbolado del hotel', dist: 0 }));
+  const queue: SectionInfo[] = [...ground, ...list.slice(0, 4), ...trees3d, ...trees.slice(0, 3), ...list.slice(4, 9), ...trees.slice(3), ...list.slice(9)];
 
   const fShader = facadeShader();
+  // árboles 3D escaneados: color de su textura con luz envolvente (sin metal ni especular del escaneo)
+  const arbol3dShader = new Cesium.CustomShader({
+    uniforms: { uNight: { type: Cesium.UniformType.FLOAT, value: 0 } },
+    fragmentShaderText: `
+      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+        vec3 c = material.baseColor.rgb;
+        float l = dot(c, vec3(0.3333));
+        if (l < 0.02) c = vec3(0.16, 0.24, 0.10);
+        material.diffuse = c * mix(1.05, 0.3, uNight);
+        material.specular = vec3(0.02);
+        material.roughness = 0.9;
+        material.emissive = c * 0.22 * (1.0 - uNight);
+      }
+    `,
+  });
   const hShader = hotelPbrShader();
   const gShader = groundShader(base);
 
@@ -295,12 +314,12 @@ export async function loadSite(
         modelMatrix: matrix,
         upAxis: Cesium.Axis.Y,
         forwardAxis: Cesium.Axis.X,
-        shadows: s.kind === 'arboles' ? Cesium.ShadowMode.CAST_ONLY : s.kind === 'suelo' ? Cesium.ShadowMode.RECEIVE_ONLY : Cesium.ShadowMode.ENABLED,
+        shadows: s.kind === 'arbol3d' ? Cesium.ShadowMode.ENABLED : s.kind === 'arboles' ? Cesium.ShadowMode.CAST_ONLY : s.kind === 'suelo' ? Cesium.ShadowMode.RECEIVE_ONLY : Cesium.ShadowMode.ENABLED,
         backFaceCulling: false,
         incrementallyLoadTextures: false,
         cull: s.kind !== 'arboles',
       });
-      if (s.kind === 'suelo') model.customShader = gShader; else if (s.kind === 'arboles') {
+      if (s.kind === 'arbol3d') model.customShader = arbol3dShader; else if (s.kind === 'suelo') model.customShader = gShader; else if (s.kind === 'arboles') {
         const sh = treeShader(base + s.atlas!, s.marco!, s.marcoSup!);
         sh.setUniform('uNight', night);
         sh.setUniform('uTarde', tarde);

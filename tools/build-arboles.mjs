@@ -14,6 +14,7 @@ import sharp from 'sharp';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { Glb } from './glb-writer.mjs';
 import { enZona } from './zona.mjs';
+import { es3d } from './arboles-cerca.mjs';
 let enZonaReal = 0;
 
 const IMP = 'C:/Users/aleja/Documents/Codex/2026-11-06/co/web/build/impostors/';
@@ -65,6 +66,8 @@ for (const k of SPECIES) {
     for (let i = 0; i < d.inst.length; i += 6) {
       // en la zona real los árboles son los de la captura 3D
       if (enZona(d.inst[i] / 100, -d.inst[i + 1] / 100)) { enZonaReal++; continue; }
+      // cerca del hotel van árboles 3D reales (build-arboles3d.mjs)
+      if (es3d(k, d.inst[i] / 100, -d.inst[i + 1] / 100)) { enZonaReal++; continue; }
       inst.push(d.inst.slice(i, i + 6));
     }
     origen.push({ actor: d.actor, n: d.n });

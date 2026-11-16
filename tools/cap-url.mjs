@@ -1,0 +1,10 @@
+import puppeteer from 'puppeteer-core';
+const [url, out, wait, scroll] = [process.argv[2], process.argv[3], +(process.argv[4] || 15000), +(process.argv[5] || 0)];
+const browser = await puppeteer.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: 'new', protocolTimeout: 300000, args: ['--no-sandbox', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--window-size=1600,900'] });
+const page = await browser.newPage(); await page.setViewport({ width: 1600, height: 900 });
+await page.goto(url, { waitUntil: 'networkidle2', timeout: 120000 });
+if (scroll) await page.evaluate((y) => window.scrollTo(0, y), scroll);
+await new Promise((r) => setTimeout(r, wait));
+await page.screenshot({ path: out, type: 'jpeg', quality: 80 });
+const ids = await page.evaluate(() => [...document.querySelectorAll('canvas')].map((c) => (c.id || c.className) + ' y=' + Math.round(c.getBoundingClientRect().top + scrollY)));
+console.log(JSON.stringify(ids)); await browser.close();

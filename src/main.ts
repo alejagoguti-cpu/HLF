@@ -196,7 +196,7 @@ if (scene.skyAtmosphere) {
 const HORA_PRESET: Record<string, number> = { dia: 10.17, tarde: 16.83, noche: 19.58 };
 let hora = 10.17;
 let clima: Clima = 'sol';
-let filtro: Filtro = 'natural';
+let filtro: Filtro = 'planos';
 let horaPlay = false;          // arranca al terminar la transición inicial
 let horaTween: { from: number; to: number; start: number } | null = null;
 let horaAplicada = -1;
@@ -352,8 +352,7 @@ async function autoPlayHotel(): Promise<void> {
   });
   site?.startBackground();
   // el reloj del día empieza a correr cuando la cámara llega
-  horaPlay = true;
-  panelTiempo.setPlay(true);
+  // la hora queda fija (sin reloj corriendo)
 }
 function arrancarHotel(): void {
   if (!site) return;

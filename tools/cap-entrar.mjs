@@ -19,7 +19,7 @@ const vista = async (n, c) => { await page.evaluate((c) => { const d = window.__
 await page.evaluate(() => { const r = document.querySelector('.tiempo .play'); if (r.textContent.includes('❚')) r.click(); const g = document.querySelector('.tiempo input'); g.value = '10.3'; g.dispatchEvent(new Event('input')); });
 await vista('x3_esquina', { e: -250, n: 276, u: 14, h: 0.75, p: -0.2, r: 70 });
 await vista('x4_marcos', { e: -214, n: 270, u: 12, h: 0.1, p: -0.1, r: 42 });
-for (const f of ['natural', 'calido', 'cine']) {
+for (const f of ['planos', 'natural']) {
   await page.evaluate((f) => { const s = document.querySelector('.tiempo select'); s.value = f; s.dispatchEvent(new Event('change')); }, f);
   await vista('x5_' + f, { e: -225, n: 290, u: 12, h: 0.5, p: -0.4, r: 230 });
 }

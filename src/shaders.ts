@@ -193,9 +193,16 @@ export function facadeShader(): Cesium.CustomShader {
           float wh0 = mix(0.28, 0.38, fract(rnd * 3.3));
           float wh1 = mix(0.80, 0.90, fract(rnd * 6.1));
           ww = mix(ww, 0.92, cortina); wh0 = mix(wh0, 0.08, cortina); wh1 = mix(wh1, 0.96, cortina);
-          if (hotel > 0.5) { ww = 0.52; wh0 = 0.30; wh1 = 0.86; }
-          float local = bajo * step(3.5, pisos) * (1.0 - hotel);
-          ww = mix(ww, 0.86, local); wh0 = mix(wh0, 0.06, local); wh1 = mix(wh1, 0.84, local);
+          float hotelUltimo = hotel * step(pisos - 1.05, v) * enCuerpo;
+          if (hotel > 0.5) {
+            ww = mix(0.50, 0.96, hotelUltimo);
+            wh0 = mix(0.32, 0.24, hotelUltimo);
+            wh1 = mix(0.86, 0.88, hotelUltimo);
+          }
+          float local = bajo * step(3.5, pisos);
+          ww = mix(ww, 0.78, local * (1.0 - hotel) + local * hotel * 0.85);
+          wh0 = mix(wh0, 0.06, local);
+          wh1 = mix(wh1, 0.84, local);
 
           vec2 lo = vec2(0.5 - ww * 0.5, wh0), hi = vec2(0.5 + ww * 0.5, wh1);
           float vano = box(f, lo, hi, aa) * enCuerpo;
@@ -203,9 +210,11 @@ export function facadeShader(): Cesium.CustomShader {
           col = wall * (0.93 + 0.12 * vnoise(vec2(uv.x * 1.7, v * 1.5) + rnd * 40.0));
           // placa de entrepiso
           float placa = (1.0 - smoothstep(0.0, 0.035 + aa.y, f.y)) * enCuerpo * step(0.5, v);
-          col = mix(col, mix(concreto, panete, 0.5), placa * mix(0.7, 0.2, esLadrillo * (1.0 - torre)));
+          col = mix(col, mix(concreto, panete, 0.5), placa * mix(0.7, mix(0.2, 0.42, hotel), esLadrillo * (1.0 - torre)));
           col = mix(col, vec3(0.46, 0.46, 0.45), zocalo);
           col = mix(col, mix(wall, concreto, 0.5) * 1.03, remate * 0.7);
+          // Franja blanca característica bajo la teja en el último piso del Hotel La Fontana
+          col = mix(col, vec3(0.90, 0.90, 0.88), hotelUltimo);
 
           vec3 cMarco = mix(vec3(0.30, 0.31, 0.32), vec3(0.88, 0.88, 0.86), max(hotel, step(0.5, fract(rnd * 13.7))));
           // vidrio: gris azulado suave, sin contraste duro
@@ -241,6 +250,11 @@ export function facadeShader(): Cesium.CustomShader {
             col = mix(col, cMarco, clamp(marco, 0.0, 1.0) * near * (1.0 - cortina * 0.6));
             parte = (1.0 - smoothstep(0.0, 0.012 + aa.x, abs(f.x - 0.5))) * step(0.6, ww);
             parte = max(parte, (1.0 - smoothstep(0.0, 0.012 + aa.y, abs(f.y - mix(wh0, wh1, 0.68)))) * (1.0 - cortina));
+            // Parteluces verticales tupidos en la franja superior del hotel
+            if (hotelUltimo > 0.5) {
+              float m3 = 1.0 - smoothstep(0.0, 0.025 + aa.x, abs(fract(f.x * 3.0) - 0.5));
+              parte = max(parte, m3 * 0.9);
+            }
             parte *= near;
             // cortinas distintas por ventana, vitrinas en los locales
             float baja = mix(0.25, 0.95, h21(celda + 3.1));
@@ -260,9 +274,23 @@ export function facadeShader(): Cesium.CustomShader {
           float esVidrio = vano * (1.0 - parte);
           rough = mix(rough, 0.06, esVidrio);
           spec = mix(spec, vec3(0.44), esVidrio);
+          // Jardineras verdes en los antepechos de las ventanas medias del hotel
+          if (hotel > 0.5 && enCuerpo > 0.5 && hotelUltimo < 0.5 && bajo < 0.5) {
+            float jard = box(f, vec2(lo.x - 0.03, wh0 - 0.13), vec2(hi.x + 0.03, wh0 + 0.01), aa);
+            float hoja = 0.72 + 0.48 * vnoise(vec2(uv.x * 9.0, v * 9.0) + rnd * 17.0);
+            vec3 verdeJard = vec3(0.13, 0.27, 0.10) * hoja;
+            col = mix(col, verdeJard, jard * 0.92);
+          }
           // suciedad y contacto en la base
           col *= mix(1.0, 0.84, smoothstep(0.95, 0.0, v) * (1.0 - zocalo) * near);
           col = mix(col, vidrio, vano);
+
+          // Bañado cálido arquitectónico en la base del hotel (estilo fachada real)
+          if (hotel > 0.5 && v > -0.1 && v < 1.35) {
+            float wash = smoothstep(1.35, 0.05, v) * (1.0 - vano * 0.65);
+            float foco = 0.65 + 0.35 * cos(f.x * 6.2831853);
+            emis += vec3(1.0, 0.58, 0.22) * wash * foco * (0.20 + 0.75 * max(uTarde * 0.55, uNight));
+          }
 
           // noche: ventanas encendidas con calidez ámbar para bloom sutil
           if (uNight > 0.01) {

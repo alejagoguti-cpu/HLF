@@ -314,10 +314,26 @@ async function autoPlayHotel(): Promise<void> {
   if (!site || !revit) return;
   stopOrbit();
   const c = revit.caja;
-  cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), heading: 0.55, pitch: -0.4, range: 230 }, 0.01);
+  const hotelPivot = enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12);
+  // transición cinematográfica: del contexto (Unicentro y el barrio) al hotel
+  // tramo 1: barrido alto sobre el contexto · tramo 2: descenso girando hasta la fachada
+  cam.flyTo({ pivot: enuToWorld(-110, 150, 10), heading: -0.75, pitch: -0.62, range: 1750 }, 0);
+  await new Promise((r) => setTimeout(r, 400));
+  cam.flyTo({ pivot: enuToWorld(-170, 230, 10), heading: -0.1, pitch: -0.55, range: 820 }, 3.6);
+  await new Promise((r) => setTimeout(r, 3500));
+  cam.flyTo({ pivot: hotelPivot, heading: 0.55, pitch: -0.4, range: 230 }, 4.2);
+  // el hotel empieza a armarse cuando la cámara va llegando
+  await new Promise((r) => setTimeout(r, 2600));
   const h = site.buildings.find((x) => x.s === 'Hotel');
-  if (h) select(h);
-  else playRevit();
+  // select() vuela la cámara al hotel: aquí ya va en camino, así que se anula ese vuelo
+  const flyTo = cam.flyTo.bind(cam);
+  cam.flyTo = () => {};
+  try {
+    if (h) select(h);
+    else playRevit();
+  } finally {
+    cam.flyTo = flyTo;
+  }
 }
 let revitLoading: Promise<void> | null = null;
 /** Carga el modelo de Revit por niveles (una sola vez) y arma su panel de pisos. */
@@ -486,7 +502,8 @@ async function boot(): Promise<void> {
 
   // Colocar la cámara en la vista inicial detrás del telón para que carguen las texturas y tiles exactos
   setView('general', 0);
-  { const c = [-248.4, 249.1, -178, 305.3]; cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), heading: 0.55, pitch: -0.4, range: 230 }, 0); }
+  // detrás del telón la cámara espera en el plano de contexto donde empieza la transición
+  cam.flyTo({ pivot: enuToWorld(-110, 150, 10), heading: -0.75, pitch: -0.62, range: 1750 }, 0);
 
   await site.done;
   progress('Cargando tráfico y parqueaderos...', 0.78);

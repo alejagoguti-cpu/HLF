@@ -103,35 +103,9 @@ export function createRealisticTrafficLight(
   const headCol = Cesium.Color.fromCssColorString('#14171c');
   const bandCol = Cesium.Color.fromCssColorString('#eab308');
 
-  // Poste vertical + banda amarilla reflectiva en la base
-  entities.push(
-    viewer.entities.add({
-      position: localToWorld(pe, pn, pu + 2.9),
-      cylinder: { length: 5.8, topRadius: 0.09, bottomRadius: 0.13, material: poleCol },
-    }),
-    viewer.entities.add({
-      position: localToWorld(pe, pn, pu + 1.2),
-      cylinder: { length: 0.45, topRadius: 0.132, bottomRadius: 0.132, material: bandCol },
-    }),
-  );
-
-  // Brazos en voladizo (ménsulas) hacia ambos sentidos de la intersección
-  const armLen = 4.6;
-  entities.push(
-    viewer.entities.add({
-      position: localToWorld(pe - armLen * 0.5, pn, pu + 5.65),
-      box: { dimensions: new Cesium.Cartesian3(armLen, 0.14, 0.14), material: poleCol },
-    }),
-    viewer.entities.add({
-      position: localToWorld(pe, pn - armLen * 0.5, pu + 5.65),
-      box: { dimensions: new Cesium.Cartesian3(0.14, armLen, 0.14), material: poleCol },
-    }),
-  );
-
   const addHead = (hx: number, hy: number, hz: number, facingNS: boolean): SignalHead => {
     const bw = facingNS ? 0.42 : 0.30;
     const bd = facingNS ? 0.30 : 0.42;
-    // Carcasa negra del semáforo
     entities.push(
       viewer.entities.add({
         position: localToWorld(hx, hy, hz),
@@ -162,6 +136,79 @@ export function createRealisticTrafficLight(
     };
     return { red, yellow, green, setState };
   };
+
+  // En la intersección del puente sobre el Canal (Calle 127 x Cra 15, ~(-148.8, 216.3)),
+  // ubicar los 5 semáforos exactos en las esquinas marcadas
+  if (Math.abs(ce + 148.8) < 12 && Math.abs(cn - 216.3) < 12) {
+    const specs: Array<{ px: number; py: number; dx: number; dy: number; isNS: boolean }> = [
+      { px: -159.5, py: 232.0, dx: 4.2, dy: 0, isNS: true },   // Esquina NO calzada occidente
+      { px: -163.5, py: 226.5, dx: 0, dy: -4.0, isNS: false }, // Esquina NO Calle 127 superior
+      { px: -163.0, py: 203.0, dx: 0, dy: 4.0, isNS: false },  // Esquina SO calzada occidente
+      { px: -133.5, py: 231.5, dx: 4.2, dy: 0, isNS: true },   // Esquina NE calzada oriente
+      { px: -133.0, py: 202.5, dx: 0, dy: 4.0, isNS: false },  // Esquina SE calzada oriente
+    ];
+    const nsHeads: SignalHead[] = [];
+    const ewHeads: SignalHead[] = [];
+    for (const sp of specs) {
+      const zu = alt(sp.px, sp.py);
+      entities.push(
+        viewer.entities.add({
+          position: localToWorld(sp.px, sp.py, zu + 2.9),
+          cylinder: { length: 5.8, topRadius: 0.09, bottomRadius: 0.13, material: poleCol },
+        }),
+        viewer.entities.add({
+          position: localToWorld(sp.px, sp.py, zu + 1.2),
+          cylinder: { length: 0.45, topRadius: 0.132, bottomRadius: 0.132, material: bandCol },
+        }),
+        viewer.entities.add({
+          position: localToWorld(sp.px + sp.dx * 0.5, sp.py + sp.dy * 0.5, zu + 5.65),
+          box: {
+            dimensions: new Cesium.Cartesian3(Math.max(0.14, Math.abs(sp.dx)), Math.max(0.14, Math.abs(sp.dy)), 0.14),
+            material: poleCol,
+          },
+        }),
+      );
+      const h = addHead(sp.px + sp.dx * 0.78, sp.py + sp.dy * 0.78, zu + 5.1, sp.isNS);
+      (sp.isNS ? nsHeads : ewHeads).push(h);
+    }
+    const groupHead = (arr: SignalHead[]): SignalHead => ({
+      red: arr[0].red,
+      yellow: arr[0].yellow,
+      green: arr[0].green,
+      setState: (st) => { for (const h of arr) h.setState(st); },
+    });
+    return {
+      ns: groupHead(nsHeads),
+      ew: groupHead(ewHeads),
+      setVisible(v: boolean) {
+        for (const e of entities) e.show = v;
+      },
+    };
+  }
+
+  // Poste vertical + banda amarilla reflectiva en la base (intersecciones generales)
+  entities.push(
+    viewer.entities.add({
+      position: localToWorld(pe, pn, pu + 2.9),
+      cylinder: { length: 5.8, topRadius: 0.09, bottomRadius: 0.13, material: poleCol },
+    }),
+    viewer.entities.add({
+      position: localToWorld(pe, pn, pu + 1.2),
+      cylinder: { length: 0.45, topRadius: 0.132, bottomRadius: 0.132, material: bandCol },
+    }),
+  );
+
+  const armLen = 4.6;
+  entities.push(
+    viewer.entities.add({
+      position: localToWorld(pe - armLen * 0.5, pn, pu + 5.65),
+      box: { dimensions: new Cesium.Cartesian3(armLen, 0.14, 0.14), material: poleCol },
+    }),
+    viewer.entities.add({
+      position: localToWorld(pe, pn - armLen * 0.5, pu + 5.65),
+      box: { dimensions: new Cesium.Cartesian3(0.14, armLen, 0.14), material: poleCol },
+    }),
+  );
 
   const ns = addHead(pe - 3.4, pn, pu + 5.1, true);
   const ew = addHead(pe, pn - 3.4, pu + 5.1, false);
@@ -209,7 +256,28 @@ export function buildRoadMarkingsAndSigns(
   };
 
   // 1. Cebras peatonales y líneas de PARE en las intersecciones principales
+  const ang127 = Math.atan2(-51, 380);
   for (const c of cruces) {
+    if (Math.abs(c.e + 148.8) < 12 && Math.abs(c.n - 216.3) < 12) {
+      // 7 cebras exactas marcadas en azul en la intersección del puente Calle 127 x Cra 15
+      const zebras: Array<{ bx: number; by: number; horiz: boolean; ang: number }> = [
+        { bx: -154.0, by: 230.0, horiz: true, ang: 0 },       // Norte calzada occidente (barras N-S)
+        { bx: -164.5, by: 221.5, horiz: false, ang: ang127 }, // Calle 127 superior occidente (barras E-O)
+        { bx: -164.5, by: 210.5, horiz: false, ang: ang127 }, // Calle 127 inferior occidente (barras E-O)
+        { bx: -154.0, by: 202.5, horiz: true, ang: 0 },       // Sur calzada occidente (barras N-S)
+        { bx: -129.0, by: 229.0, horiz: false, ang: ang127 }, // Norte calzada oriente (barras E-O)
+        { bx: -128.5, by: 211.5, horiz: false, ang: ang127 }, // Calle 127 oriente (barras E-O)
+        { bx: -136.5, by: 202.5, horiz: true, ang: 0 },       // Sur calzada oriente (barras N-S)
+      ];
+      for (const z of zebras) {
+        for (let k = -3; k <= 3; k++) {
+          const sx = z.horiz ? z.bx + k * 1.1 : z.bx;
+          const sy = z.horiz ? z.by : z.by + k * 1.05;
+          addStripe(sx, sy, z.horiz ? 0.52 : 2.8, z.horiz ? 2.8 : 0.52, z.ang, WHITE);
+        }
+      }
+      continue;
+    }
     // 4 aproximaciones (N, S, E, O) a 9.5 m del centro del cruce
     const approaches = [
       { de: 0, dn: 9.5, horiz: true },
@@ -241,7 +309,6 @@ export function buildRoadMarkingsAndSigns(
     addStripe(-132, n, 0.18, 3.2, 0, WHITE);
   }
   // Avenida E-O (Calle 127) al sur del hotel
-  const ang127 = Math.atan2(-51, 380);
   for (let e = -420; e <= 160; e += 8) {
     const nMed = 263 - (e + 420) * (51 / 380);
     addStripe(e, nMed + 7.5, 3.2, 0.18, ang127, WHITE);

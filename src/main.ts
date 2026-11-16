@@ -148,7 +148,7 @@ cam.groundHeight = (c) => scene.globe.getHeight(c);
 
 interface LightingPreset { id: string; iso: string; night: number; tarde: number; fog: number; label: string; sun: number; color: string }
 const PRESETS: LightingPreset[] = [
-  { id: 'dia', iso: '2026-06-21T10:10:00-05:00', night: 0, tarde: 0, fog: 0.00018, label: '10:10', sun: 5.55, color: '#dad1c3' },
+  { id: 'dia', iso: '2026-06-21T10:10:00-05:00', night: 0, tarde: 0, fog: 0.00018, label: '10:10', sun: 5.75, color: '#ffe3c4' },
   { id: 'tarde', iso: '2026-06-21T16:50:00-05:00', night: 0.04, tarde: 1, fog: 0.00022, label: '16:50', sun: 5.75, color: '#ffe3c4' },
   { id: 'noche', iso: '2026-06-21T19:35:00-05:00', night: 1, tarde: 0, fog: 0.00022, label: '19:35', sun: 0.65, color: '#6b8fd4' },
 ];
@@ -260,6 +260,11 @@ document.querySelectorAll<HTMLButtonElement>('[data-place]').forEach((btn) => {
   btn.addEventListener('click', () => {
     stopOrbit();
     const key = btn.dataset.place as keyof typeof PLACES;
+    // el botón Hotel también selecciona el edificio: lanza el apilado del modelo de Revit
+    if (key === 'hotel' && site) {
+      const h = site.buildings.find((x) => x.s === 'Hotel');
+      if (h) { select(null); select(h); return; }
+    }
     cam.flyTo({ pivot: placeWorld(key), range: key === 'hotel' ? 300 : 520, pitch: -0.5 }, 2.0);
   });
 });
@@ -290,6 +295,31 @@ let hotelAnim: { start: number } | null = null;
 /* modelo de Revit del hotel, por niveles */
 let revit: RevitHotel | null = null;
 let pisosPanel: { show(v: boolean): void; mark(i: number): void } | null = null;
+let revitPending = false;
+let revitLoading: Promise<void> | null = null;
+/** Carga el modelo de Revit por niveles (una sola vez) y arma su panel de pisos. */
+function initRevit(): Promise<void> {
+  if (revitLoading) return revitLoading;
+  revitLoading = (async () => {
+    if (!site) return;
+    revit = await loadRevitHotel(viewer, site.matrix);
+    if (!revit) return;
+    revit.setNight(currentNight);
+    pisosPanel = createPisosPanel(revit, (i) => {
+      if (!revit) return;
+      stopOrbit();
+      pisosPanel?.mark(i);
+      if (i < 0) revit.full();
+      else revit.openAt(i);
+      // al abrir un piso la cámara sube para leer la planta
+      const c = revit.caja;
+      cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), pitch: i < 0 ? -0.42 : -0.95, range: i < 0 ? 230 : 150 }, 1.4);
+    });
+    // si ya se había pedido el hotel mientras cargaba, arranca la animación
+    if (revitPending) { revitPending = false; site.setHotelFloors(99); playRevit(); if (highlight) { viewer.entities.remove(highlight); highlight = null; } }
+  })();
+  return revitLoading;
+}
 function playRevit(): void {
   if (!site || !revit) return;
   site.setRevitZone(revit.caja);
@@ -341,7 +371,7 @@ function select(b: Building | null): void {
       playRevit();
       // con el modelo real a la vista no hace falta el prisma de selección
       if (highlight) { viewer.entities.remove(highlight); highlight = null; }
-    } else playHotel();
+    } else { revitPending = true; void initRevit(); playHotel(); }
     stopOrbit();
     cam.flyTo({ pivot: placeWorld('hotel'), pitch: -0.38, range: 290 }, 1.8);
   }
@@ -400,6 +430,7 @@ async function boot(): Promise<void> {
     },
   );
   site.setNight(currentNight);
+  void initRevit(); // temprano
   site.setTarde(currentTarde);
   const activeId = (document.querySelector<HTMLButtonElement>('[data-light].on')?.dataset.light as PresetId) || 'dia';
   applyLook(lookStudio.getPreset(activeId));
@@ -414,20 +445,7 @@ async function boot(): Promise<void> {
   (window as unknown as { __READY__?: boolean }).__READY__ = true;
   site.done.then(async () => {
     trafico = await createTrafico(viewer, site!.matrix);
-    revit = await loadRevitHotel(viewer, site!.matrix);
-    if (revit) {
-      revit.setNight(currentNight);
-      pisosPanel = createPisosPanel(revit, (i) => {
-        if (!revit) return;
-        stopOrbit();
-        pisosPanel?.mark(i);
-        if (i < 0) revit.full();
-        else revit.openAt(i);
-        // al abrir un piso la cámara sube para leer la planta
-        const c = revit.caja;
-        cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), pitch: i < 0 ? -0.42 : -0.95, range: i < 0 ? 230 : 150 }, 1.4);
-      });
-    }
+    await initRevit();
     (window as unknown as { __ALL__?: boolean }).__ALL__ = true;
   });
 }

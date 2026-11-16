@@ -469,7 +469,7 @@ export function skyStage(east: Cesium.Cartesian3, north: Cesium.Cartesian3, up: 
       uniform float uCloudSpeed;
       in vec2 v_textureCoordinates;
 
-      float sh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float sh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
       float sn(vec2 p) {
         vec2 i = floor(p); vec2 f = fract(p);
         f = f * f * (3.0 - 2.0 * f);
@@ -479,9 +479,9 @@ export function skyStage(east: Cesium.Cartesian3, north: Cesium.Cartesian3, up: 
         float v = 0.0;
         float a = 0.5;
         mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
           v += a * sn(p);
-          p = rot * p * 2.04 + vec2(13.7, 7.3);
+          p = rot * p * 2.03 + vec2(13.7, 7.3);
           a *= 0.5;
         }
         return v;
@@ -499,42 +499,68 @@ export function skyStage(east: Cesium.Cartesian3, north: Cesium.Cartesian3, up: 
         vec4 eye = czm_inverseProjection * ndc;
         vec3 dirEC = normalize(eye.xyz / eye.w);
         vec3 dirWC = normalize(czm_inverseViewRotation * dirEC);
-        vec3 rd = vec3(dot(dirWC, uEast), dot(dirWC, uNorth), dot(dirWC, uUp));
+        vec3 rd = normalize(vec3(dot(dirWC, uEast), dot(dirWC, uNorth), dot(dirWC, uUp)));
         float elev = max(0.0, rd.z);
 
-        vec3 sky = mix(uSkyHorizon, uSkyZenith, pow(elev, 0.52));
+        vec3 sunWC = normalize(czm_sunDirectionWC);
+        vec3 sunENU = normalize(vec3(dot(sunWC, uEast), dot(sunWC, uNorth), dot(sunWC, uUp)));
+        float sunDot = max(0.0, dot(rd, sunENU));
 
-        // Halo y disco solar sutil
-        float sunDot = max(0.0, dot(dirWC, normalize(czm_sunDirectionWC)));
-        vec3 sunGlowCol = mix(vec3(1.0, 0.96, 0.88), vec3(1.0, 0.84, 0.64), uTarde);
-        sky += sunGlowCol * pow(sunDot, 10.0) * 0.28 * (1.0 - uNight);
-        sky += vec3(1.0, 0.98, 0.92) * smoothstep(0.9992, 0.99985, sunDot) * 1.4 * (1.0 - uNight);
+        // Dispersión atmosférica estilo Unreal SkyAtmosphere (Rayleigh + Mie)
+        vec3 rayleigh = mix(uSkyHorizon, uSkyZenith, pow(elev, 0.48));
+        float horizonBand = exp(-elev * 12.0);
+        vec3 mieCol = mix(vec3(1.0, 0.95, 0.86), vec3(1.0, 0.78, 0.58), uTarde);
+        vec3 sky = rayleigh + mieCol * (pow(sunDot, 6.0) * 0.34 + horizonBand * pow(sunDot, 2.0) * 0.25) * (1.0 - uNight);
+        sky = mix(sky, uSkyHorizon * 1.08, horizonBand * 0.45 * (1.0 - uNight));
+        sky += vec3(1.0, 0.98, 0.92) * smoothstep(0.99935, 0.99988, sunDot) * 1.8 * (1.0 - uNight);
 
-        // Nubes cúmulos proyectadas en cúpula, con desplazamiento lento por el viento
+        // Estrellas sutiles de noche
+        if (uNight > 0.15 && elev > 0.05) {
+          vec2 starUV = rd.xy / (elev + 0.35) * 180.0;
+          float st = sh(floor(starUV));
+          vec2 sf = fract(starUV) - 0.5;
+          float star = smoothstep(0.992, 0.999, st) * smoothstep(0.32, 0.0, length(sf));
+          sky += vec3(0.85, 0.90, 1.0) * star * uNight * smoothstep(0.05, 0.3, elev) * 1.4;
+        }
+
+        // Nubes con perspectiva de plano infinito (curvatura terrestre) + doble capa
         if (rd.z > 0.002 && uCloudDensity > 0.01) {
-          vec2 uv = rd.xy / (rd.z + 0.12);
-          vec2 wind = vec2(uTime * 0.008, uTime * 0.003) * uCloudSpeed;
-          float n1 = fbm(uv * 0.48 + wind);
-          float n2 = fbm(uv * 1.15 - wind * 0.6 + vec2(4.2, 9.1));
-          float density = smoothstep(0.45, 0.74, n1 * 0.72 + n2 * 0.34);
+          float tCum = 1.0 / (rd.z + 0.065);
+          vec2 p = rd.xy * tCum * 0.55;
+          vec2 wind = vec2(uTime * 0.012, uTime * 0.004) * uCloudSpeed;
 
-          // Sombreado propio de la nube hacia el sol
-          float nSun = fbm((uv + vec2(0.05, 0.03)) * 0.48 + wind);
-          float lit = clamp(0.55 + (n1 - nSun) * 3.2 + sunDot * 0.25, 0.0, 1.0);
+          vec2 warp = vec2(fbm(p * 0.65 + wind), fbm(p * 0.65 - wind + vec2(5.2, 1.3)));
+          float nBase = fbm(p + warp * 0.42 + wind);
+          float detail = fbm(p * 2.6 - wind * 0.8 + vec2(3.1, 7.4));
+          float shape = nBase * 0.78 + detail * 0.26;
+          float cov = mix(0.62, 0.36, clamp(uCloudDensity, 0.0, 1.0));
+          float alpha = smoothstep(cov, cov + 0.24, shape);
 
-          vec3 cLitDia = vec3(0.99, 0.99, 1.0);
-          vec3 cShdDia = vec3(0.62, 0.71, 0.84);
-          vec3 cLitTarde = vec3(0.98, 0.92, 0.86);
-          vec3 cShdTarde = vec3(0.48, 0.54, 0.68);
-          vec3 cNoche = vec3(0.04, 0.06, 0.11);
+          vec2 sunStep = sunENU.xy * 0.08;
+          float nSun = fbm(p + sunStep + warp * 0.42 + wind);
+          float directLit = clamp(0.52 + (nBase - nSun) * 4.5, 0.0, 1.0);
+          float silver = pow(sunDot, 8.0) * (1.0 - alpha * 0.55) * 0.65;
+
+          vec3 topDia = vec3(1.0, 0.99, 0.98);
+          vec3 botDia = mix(uSkyHorizon * 0.72, vec3(0.46, 0.53, 0.64), 0.5);
+          vec3 topTarde = vec3(1.0, 0.91, 0.82);
+          vec3 botTarde = mix(uSkyHorizon * 0.65, vec3(0.38, 0.43, 0.54), 0.5);
+          vec3 cNoche = vec3(0.05, 0.07, 0.13);
 
           vec3 cloudCol = mix(
-            mix(mix(cShdDia, cLitDia, lit), mix(cShdTarde, cLitTarde, lit), uTarde),
+            mix(mix(botDia, topDia, directLit), mix(botTarde, topTarde, directLit), uTarde),
             cNoche,
             uNight
           );
-          float horizonFade = smoothstep(0.002, 0.055, rd.z);
-          sky = mix(sky, cloudCol, density * horizonFade * uCloudDensity);
+          cloudCol += mieCol * silver * (1.0 - uNight);
+
+          vec2 pCir = rd.xy * (1.0 / (rd.z + 0.04)) * 0.28;
+          float cir = smoothstep(0.56, 0.82, fbm(vec2(pCir.x * 0.7, pCir.y * 1.9) + wind * 0.45));
+          vec3 cirCol = mix(mix(vec3(0.96, 0.98, 1.0), vec3(0.98, 0.88, 0.80), uTarde), cNoche * 1.2, uNight);
+
+          float distFade = smoothstep(0.002, 0.075, rd.z);
+          sky = mix(sky, cirCol, cir * 0.28 * distFade * uCloudDensity);
+          sky = mix(sky, cloudCol, alpha * distFade * min(1.0, uCloudDensity * 0.96));
         }
 
         out_FragColor = vec4(sky, src.a);

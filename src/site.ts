@@ -269,6 +269,10 @@ export async function loadSite(
   void aerial;
   const tShaders: Cesium.CustomShader[] = [];
   const treeModels: Cesium.Model[] = [];
+  /** volumen completo del hotel (fachadas + cubiertas): se recorta donde va Revit y crece desde el piso en la animación */
+  const hotelModels: Cesium.Model[] = [];
+  let hotelZone: Cesium.Cartesian3[] | null = null;
+  const growPlane = new Cesium.ClippingPlane(new Cesium.Cartesian3(0, -1, 0), 1000) /* glTF Y-up: corta por altura */;
   let night = 0;
   let tarde = 0;
   let skyFill = 0.22;
@@ -309,6 +313,7 @@ export async function loadSite(
           : new Cesium.Cartesian2(0.68, 0.38);
       scene.primitives.add(model);
       if (s.kind === 'arboles') treeModels.push(model);
+      if (s.key === 'Hotel' || s.key === 'hotel_cubiertas') hotelModels.push(model);
       await new Promise<void>((resolve) => {
         if (model.ready) return resolve();
         const off = model.readyEvent.addEventListener(() => { off(); resolve(); });
@@ -391,9 +396,30 @@ export async function loadSite(
       }
     },
     setRevitZone(box: [number, number, number, number] | null) {
+      hotelZone = box
+        ? [[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]]].map(([e, n]) => enuToWorld(e, n, 0, matrix))
+        : null;
+      for (const m of hotelModels) {
+        m.clippingPolygons = hotelZone
+          ? new Cesium.ClippingPolygonCollection({ polygons: [new Cesium.ClippingPolygon({ positions: hotelZone })] })
+          : (undefined as unknown as Cesium.ClippingPolygonCollection);
+      }
       fShader.setUniform('uRevitBox', box ? new Cesium.Cartesian4(box[0] - 1, box[1] - 1, box[2] + 1, box[3] + 1) : new Cesium.Cartesian4(0, 0, 0, 0));
     },
     setHotelFloors(n: number) {
+      // el resto del hotel crece desde el piso: plano de corte horizontal que sube con los pisos
+      const on = n < 98;
+      growPlane.distance = 3.2 + n * 3.05;
+      for (const m of hotelModels) {
+        if (on && !m.clippingPlanes) {
+          m.clippingPlanes = new Cesium.ClippingPlaneCollection({
+            planes: [growPlane],
+            edgeWidth: 2.0,
+            edgeColor: Cesium.Color.fromCssColorString('#d7ebff'),
+          });
+        }
+        if (m.clippingPlanes) m.clippingPlanes.enabled = on;
+      }
       fShader.setUniform('uHotelPisos', n);
     },
     setTreesVisible(v: boolean) {

@@ -325,7 +325,7 @@ function initRevit(): Promise<void> {
       cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), pitch: i < 0 ? -0.42 : -0.95, range: i < 0 ? 230 : 150 }, 1.4);
     });
     // si ya se había pedido el hotel mientras cargaba, arranca la animación
-    if (revitPending) { revitPending = false; site.setHotelFloors(99); playRevit(); if (highlight) { viewer.entities.remove(highlight); highlight = null; } }
+    if (revitPending) { revitPending = false; playRevit(); if (highlight) { viewer.entities.remove(highlight); highlight = null; } }
   })();
   return revitLoading;
 }
@@ -333,6 +333,9 @@ function playRevit(): void {
   if (!site || !revit) return;
   site.setRevitZone(revit.caja);
   revit.play();
+  // el resto del hotel se arma a la par, piso por piso
+  hotelAnim = { start: performance.now() };
+  site.setHotelFloors(0);
   pisosPanel?.mark(-1);
   pisosPanel?.show(true);
 }
@@ -460,6 +463,8 @@ async function boot(): Promise<void> {
   );
   site.setNight(currentNight);
   site.setTarde(currentTarde);
+  // el modelo de Revit del hotel se descarga desde el arranque: al pulsar Hotel la animación sale de inmediato
+  void initRevit();
   const activeId = (document.querySelector<HTMLButtonElement>('[data-light].on')?.dataset.light as PresetId) || 'dia';
   applyLook(lookStudio.getPreset(activeId));
   applyQuality();

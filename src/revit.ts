@@ -12,7 +12,7 @@ import { ASSETS } from './config';
  */
 
 interface NivelInfo { i: number; nombre: string; file: string; elev: number; z0: number; z1: number; tris: number }
-interface Manifest { niveles: NivelInfo[]; caja: [number, number, number, number] }
+interface Manifest { niveles: NivelInfo[]; caja: [number, number, number, number]; bloques?: number[] }
 
 interface Nivel extends NivelInfo {
   model: Cesium.Model;
@@ -26,6 +26,8 @@ interface Nivel extends NivelInfo {
 export interface RevitHotel {
   niveles: { i: number; nombre: string }[];
   caja: [number, number, number, number];
+  /** bloques del modelo de contexto que este Revit reemplaza */
+  bloques: number[];
   ready: boolean;
   visible: boolean;
   /** nivel abierto (-1 = edificio completo) */
@@ -189,6 +191,7 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
   const api: RevitHotel = {
     niveles: niveles.map((n) => ({ i: n.i, nombre: n.nombre })),
     caja: man.caja,
+    bloques: man.bloques ?? [],
     ready: true,
     visible: false,
     abierto: -1,

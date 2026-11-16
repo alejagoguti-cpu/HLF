@@ -57,6 +57,8 @@ export interface Site {
   setHotelFloors(n: number): void;
   /** zona ENU donde el hotel lo dibuja el modelo de Revit (null = ninguna) */
   setRevitZone(box: [number, number, number, number] | null): void;
+  /** oculta solo los bloques (ids de edificios) que reemplaza el modelo de Revit; [] = ninguno */
+  setRevitBlocks(ids: number[]): void;
   buildingAt(world: Cesium.Cartesian3): Building | null;
 }
 
@@ -395,7 +397,28 @@ export async function loadSite(
         for (const sh of tShaders) sh.setUniform('uHazeStart', hazeStart);
       }
     },
+    setRevitBlocks(ids: number[]) {
+      const polys = edif.edificios
+        .filter((b) => ids.includes(b.id))
+        .map((b) => {
+          // la huella se agranda 0,6 m para que no queden restos del volumen genérico en el borde
+          const cx = b.r.reduce((s, p) => s + p[0], 0) / b.r.length;
+          const cy = b.r.reduce((s, p) => s + p[1], 0) / b.r.length;
+          return new Cesium.ClippingPolygon({
+            positions: b.r.map(([e, n]) => {
+              const dx = e - cx, dy = n - cy, l = Math.hypot(dx, dy) || 1;
+              return enuToWorld(e + (dx / l) * 0.6, n + (dy / l) * 0.6, 0, matrix);
+            }),
+          });
+        });
+      for (const m of hotelModels) {
+        m.clippingPolygons = polys.length
+          ? new Cesium.ClippingPolygonCollection({ polygons: polys })
+          : (undefined as unknown as Cesium.ClippingPolygonCollection);
+      }
+    },
     setRevitZone(box: [number, number, number, number] | null) {
+      if (box) return; // ya no se usa la zona rectangular: se ocultan solo los bloques reemplazados (setRevitBlocks)
       hotelZone = box
         ? [[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]]].map(([e, n]) => enuToWorld(e, n, 0, matrix))
         : null;

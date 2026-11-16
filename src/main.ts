@@ -331,11 +331,9 @@ function initRevit(): Promise<void> {
 }
 function playRevit(): void {
   if (!site || !revit) return;
-  site.setRevitZone(revit.caja);
+  // solo desaparece el bloque que el Revit reemplaza; el resto del hotel queda intacto
+  site.setRevitBlocks(revit.bloques);
   revit.play();
-  // el resto del hotel se arma a la par, piso por piso
-  hotelAnim = { start: performance.now() };
-  site.setHotelFloors(0);
   pisosPanel?.mark(-1);
   pisosPanel?.show(true);
 }

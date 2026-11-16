@@ -84,6 +84,7 @@ for (let i = 0; i < 12; i++) {
   manifest.niveles.push({ i, nombre: d.nivel, file, elev: +(d.elev_m + A.z).toFixed(2), z0: +zmin.toFixed(2), z1: +zmax.toFixed(2), tris: I.length / 3, kb: Math.round(bytes / 1024) });
   console.log(d.nivel.padEnd(9), 'tris', String(I.length / 3).padStart(6), (bytes / 1024).toFixed(0).padStart(5) + ' KB', 'z', zmin.toFixed(1), zmax.toFixed(1));
 }
-manifest.caja = box.map((v) => +v.toFixed(1)); // este0, norte0, este1, norte1 (muros y losas)
+manifest.caja = box.map((v) => +v.toFixed(1));
+manifest.bloques = A.bloques ?? []; // este0, norte0, este1, norte1 (muros y losas)
 writeFileSync('public/secciones/revit.json', JSON.stringify(manifest));
 console.log('caja ENU', manifest.caja);

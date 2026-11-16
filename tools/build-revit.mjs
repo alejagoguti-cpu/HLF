@@ -47,74 +47,102 @@ const MAT = {
 
 const manifest = { niveles: [], alineacion: A };
 let box = [1e9, 1e9, -1e9, -1e9];
+
+/*
+ * Milhoja: toda la geometría se corta en rebanadas horizontales exactas, una por nivel.
+ * Un muro que en Revit sube varios pisos queda partido piso a piso, así cada nivel llega
+ * completo (su losa, sus muros, sus ventanas) y se apila sobre el anterior.
+ * La losa de cada piso pertenece al piso que sostiene (el corte va 0,35 m bajo la cota del nivel).
+ */
+const levels = [];
+const TRIS = []; // [x0,y0,z0, x1,y1,z1, x2,y2,z2] en coords de Revit + color
 for (let i = 0; i < 12; i++) {
   const f = `build/revit/nivel_${i}.json`;
   if (!existsSync(f)) continue;
   const d = JSON.parse(readFileSync(f, 'utf8'));
-  const P = [], N = [], C = [], I = [];
-  let n = 0, zmin = 1e9, zmax = -1e9;
+  levels.push({ i, nombre: d.nivel, elev: d.elev_m });
   if (i === 0) delete d.cats.losas; // el primer piso no lleva la placa de contrapiso
-  // materas con vegetación bajo cada ventana (código 240 = barro, 250-252 = hojas)
   if (d.cats.ventanas) {
     const mt = materas(d.cats.ventanas.V, LOSAS, d.cats.ventanas.T);
     totalMaceteros += mt.cuenta;
-    if (mt.P.length) {
-      const T = Array.from({ length: mt.P.length / 3 }, (_, k) => k);
-      d.cats.__materas = { V: mt.P, T, codes: mt.C };
-    }
+    if (mt.P.length) d.cats.__materas = { V: mt.P, T: Array.from({ length: mt.P.length / 3 }, (_, k) => k), codes: mt.C };
   }
   for (const [cat, m] of Object.entries(d.cats)) {
     const [rgb, code] = MAT[cat] ?? [[160, 160, 160], 230];
-    const base = n;
-    const nv = m.V.length / 3;
-    const pos = new Float32Array(nv * 3);
-    for (let k = 0; k < nv; k++) {
-      const x = m.V[k * 3] - A.rx, y = m.V[k * 3 + 1] - A.ry, z = m.V[k * 3 + 2] + A.z;
-      const mx = x * CT - y * ST + A.cx, my = x * ST + y * CT + A.cy;
-      const e = S * (mx * CA - my * SA), nn = S * (mx * SA + my * CA);
-      pos.set([e, z, -nn], k * 3);
-      if (z < zmin) zmin = z; if (z > zmax) zmax = z;
-      if (cat === 'muros' || cat === 'losas') { box = [Math.min(box[0], e), Math.min(box[1], nn), Math.max(box[2], e), Math.max(box[3], nn)]; }
-    }
-    // normales por vértice (los vértices no se comparten entre caras de Revit: caras planas quedan planas)
-    const nor = new Float32Array(nv * 3);
     for (let t = 0; t < m.T.length; t += 3) {
-      const a = m.T[t] * 3, b = m.T[t + 1] * 3, c = m.T[t + 2] * 3;
-      const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2];
-      const vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
-      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      for (const q of [a, b, c]) { nor[q] += nx; nor[q + 1] += ny; nor[q + 2] += nz; }
-    }
-    for (let k = 0; k < nv; k++) {
-      const l = Math.hypot(nor[k * 3], nor[k * 3 + 1], nor[k * 3 + 2]) || 1;
-      P.push(pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2]);
-      N.push(nor[k * 3] / l, nor[k * 3 + 1] / l, nor[k * 3 + 2] / l);
+      const v = [m.T[t], m.T[t + 1], m.T[t + 2]].map((k) => [m.V[k * 3], m.V[k * 3 + 1], m.V[k * 3 + 2]]);
+      let col = [...rgb, code];
       if (m.codes) {
-        const cc = m.codes[k];
-        const col = cc === 240 ? [150, 78, 52] : cc === 250 ? [44, 70, 34] : cc === 251 ? [64, 98, 46] : [92, 128, 60];
-        C.push(col[0], col[1], col[2], cc);
-      } else C.push(rgb[0], rgb[1], rgb[2], code);
+        const cc = m.codes[m.T[t]];
+        col = cc === 240 ? [150, 78, 52, cc] : cc === 250 ? [44, 70, 34, cc] : cc === 251 ? [64, 98, 46, cc] : [92, 128, 60, cc];
+      }
+      TRIS.push({ v, col, cat });
     }
-    for (const t of m.T) I.push(base + t);
-    n += nv;
   }
+}
+const cuts = levels.map((l, k) => (k === 0 ? -1e9 : l.elev - 0.35));
+cuts.push(1e9);
+
+// recorte de un polígono por el plano horizontal z = h (conserva el lado keep)
+const clipZ = (poly, h, above) => {
+  const out = [];
+  for (let k = 0; k < poly.length; k++) {
+    const a = poly[k], b = poly[(k + 1) % poly.length];
+    const ia = above ? a[2] >= h : a[2] < h, ib = above ? b[2] >= h : b[2] < h;
+    if (ia) out.push(a);
+    if (ia !== ib) { const t = (h - a[2]) / (b[2] - a[2]); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, h]); }
+  }
+  return out;
+};
+const toView = ([x0, y0, z0]) => {
+  const x = x0 - A.rx, y = y0 - A.ry, z = z0 + A.z;
+  const mx = x * CT - y * ST + A.cx, my = x * ST + y * CT + A.cy;
+  return [S * (mx * CA - my * SA), z, -S * (mx * SA + my * CA)];
+};
+
+for (let li = 0; li < levels.length; li++) {
+  const lo = cuts[li], hi = cuts[li + 1];
+  const P = [], N = [], C = [];
+  let zmin = 1e9, zmax = -1e9;
+  for (const { v, col, cat } of TRIS) {
+    const tz0 = Math.min(v[0][2], v[1][2], v[2][2]), tz1 = Math.max(v[0][2], v[1][2], v[2][2]);
+    if (tz1 < lo || tz0 >= hi) continue;
+    let poly = v;
+    if (tz0 < lo) poly = clipZ(poly, lo, true);
+    if (poly.length >= 3 && tz1 >= hi) poly = clipZ(poly, hi, false);
+    if (poly.length < 3) continue;
+    const pv = poly.map(toView);
+    // normal plana del triángulo original
+    const a = toView(v[0]), b = toView(v[1]), c = toView(v[2]);
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], wx = c[0] - a[0], wy = c[1] - a[1], wz = c[2] - a[2];
+    let nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+    const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    for (let k = 1; k + 1 < pv.length; k++) {
+      for (const p of [pv[0], pv[k], pv[k + 1]]) {
+        P.push(p[0], p[1], p[2]); N.push(nx, ny, nz); C.push(col[0], col[1], col[2], col[3]);
+        if (p[1] < zmin) zmin = p[1]; if (p[1] > zmax) zmax = p[1];
+        if (cat === 'muros' || cat === 'losas') box = [Math.min(box[0], p[0]), Math.min(box[1], -p[2]), Math.max(box[2], p[0]), Math.max(box[3], -p[2])];
+      }
+    }
+  }
+  const nV = P.length / 3;
   const g = new Glb();
   g.j.materials.push({ name: 'Revit', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 0.85 } });
   g.j.meshes.push({
-    name: d.nivel,
+    name: levels[li].nombre,
     primitives: [{
       attributes: {
         POSITION: g.acc(new Float32Array(P), 'VEC3', { target: 34962, minmax: true }), NORMAL: g.acc(new Float32Array(N), 'VEC3', { target: 34962 }),
         COLOR_0: g.acc(new Uint8Array(C), 'VEC4', { target: 34962, normalized: true }),
       },
-      indices: g.acc(new Uint32Array(I), 'SCALAR', { target: 34963 }), material: 0,
+      indices: g.acc(Uint32Array.from({ length: nV }, (_, k) => k), 'SCALAR', { target: 34963 }), material: 0,
     }],
   });
-  g.j.nodes.push({ name: 'Revit_' + d.nivel, mesh: 0 }); g.j.scenes[0].nodes.push(0);
-  const file = `revit_nivel_${i}.glb`;
+  g.j.nodes.push({ name: 'Revit_' + levels[li].nombre, mesh: 0 }); g.j.scenes[0].nodes.push(0);
+  const file = `revit_nivel_${levels[li].i}.glb`;
   const bytes = g.write('public/secciones/' + file);
-  manifest.niveles.push({ i, nombre: d.nivel, file, elev: +(d.elev_m + A.z).toFixed(2), z0: +zmin.toFixed(2), z1: +zmax.toFixed(2), tris: I.length / 3, kb: Math.round(bytes / 1024) });
-  console.log(d.nivel.padEnd(9), 'tris', String(I.length / 3).padStart(6), (bytes / 1024).toFixed(0).padStart(5) + ' KB', 'z', zmin.toFixed(1), zmax.toFixed(1));
+  manifest.niveles.push({ i: levels[li].i, nombre: levels[li].nombre, file, elev: +(levels[li].elev + A.z).toFixed(2), z0: +zmin.toFixed(2), z1: +zmax.toFixed(2), tris: nV / 3, kb: Math.round(bytes / 1024) });
+  console.log(levels[li].nombre.padEnd(9), 'tris', String(nV / 3).padStart(6), (bytes / 1024).toFixed(0).padStart(5) + ' KB', 'z', zmin.toFixed(1), zmax.toFixed(1));
 }
 manifest.caja = box.map((v) => +v.toFixed(1));
 manifest.bloques = A.bloques ?? [];
@@ -158,3 +186,12 @@ manifest.bloques = A.bloques ?? [];
 } // este0, norte0, este1, norte1 (muros y losas)
 writeFileSync('public/secciones/revit.json', JSON.stringify(manifest));
 console.log('caja ENU', manifest.caja, '· materas', totalMaceteros);
+
+// compresión: soldar vértices + Draco (16 MB -> ~0,6 MB)
+import { execSync } from 'node:child_process';
+for (const n of manifest.niveles) {
+  const f = 'public/secciones/' + n.file;
+  execSync(`npx gltf-transform weld "${f}" build/revit/_w.glb`, { stdio: 'ignore' });
+  execSync(`npx gltf-transform draco build/revit/_w.glb "${f}" --method edgebreaker`, { stdio: 'ignore' });
+}
+console.log('niveles comprimidos con Draco');

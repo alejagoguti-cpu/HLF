@@ -16,11 +16,12 @@ interface Manifest { niveles: NivelInfo[]; caja: [number, number, number, number
 
 interface Nivel extends NivelInfo {
   model: Cesium.Model;
-  /** desplazamiento vertical actual / objetivo (m) y opacidad lógica */
+  /** desplazamiento vertical (m) y opacidad actuales, y la animación en curso */
   off: number;
-  target: number;
-  delay: number;
+  alpha: number;
+  anim: { o0: number; o1: number; a0: number; a1: number; start: number; dur: number } | null;
   shown: boolean;
+  target: number;
 }
 
 export interface RevitHotel {
@@ -217,19 +218,33 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
       model.customShader = shader;
       model.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(0.45, 0.25);
       viewer.scene.primitives.add(model);
-      niveles.push({ ...info, model, off: 0, target: 0, delay: 0, shown: false });
+      niveles.push({ ...info, model, off: 0, alpha: 1, anim: null, shown: false, target: 0 });
     } catch (err) {
       console.warn('Nivel de Revit no cargado', info.file, err);
     }
   }
   if (!niveles.length) return null;
 
-  const LIFT = 46; // altura desde la que cae / a la que se retira un nivel
+  /*
+   * Milhoja: cada piso baja solo unos metros sobre el de abajo y aparece con un fundido;
+   * entra el siguiente cuando el anterior ya va asentándose. Movimiento por tiempo (no por cuadro),
+   * con curva suave de salida, para que se vea fluido aunque la página siga cargando.
+   */
+  const DROP = 5.5;      // m que baja cada piso al entrar
+  const LIFT = 16;       // m que sube un piso al abrir el edificio en un nivel inferior
   const scratch = new Cesium.Matrix4();
   const place = (n: Nivel): void => {
     const t = Cesium.Matrix4.fromTranslation(new Cesium.Cartesian3(0, 0, n.off), scratch);
     n.model.modelMatrix = Cesium.Matrix4.multiply(matrix, t, new Cesium.Matrix4());
+    const a = Math.max(0, Math.min(1, n.alpha));
+    n.model.color = a >= 0.999 ? (undefined as unknown as Cesium.Color) : Cesium.Color.WHITE.withAlpha(a);
+    n.model.show = a > 0.01;
   };
+  const anim = (n: Nivel, o1: number, a1: number, start: number, dur: number) => {
+    n.anim = { o0: n.off, o1, a0: n.alpha, a1, start, dur };
+    n.target = o1;
+  };
+  const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
 
   const api: RevitHotel = {
     niveles: niveles.map((n) => ({ i: n.i, nombre: n.nombre })),
@@ -244,12 +259,10 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
       api.abierto = -1;
       const t0 = performance.now();
       niveles.forEach((n, k) => {
-        n.off = LIFT;
-        n.target = 0;
-        n.delay = t0 + k * 620;
-        n.shown = false;
-        n.model.show = false;
+        n.off = DROP;
+        n.alpha = 0;
         place(n);
+        anim(n, 0, 1, t0 + k * 560, 900);
       });
     },
     openAt(i: number) {
@@ -257,45 +270,35 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
       api.abierto = i;
       const now = performance.now();
       let k = 0;
-      // los niveles de arriba se retiran de arriba hacia abajo; los de abajo vuelven a su sitio
-      for (const n of [...niveles].reverse()) {
-        if (n.i > i) { n.target = LIFT; n.delay = now + k++ * 110; }
-      }
-      for (const n of niveles) {
-        if (n.i <= i) { n.target = 0; n.delay = now; if (!n.shown) { n.off = LIFT; } }
-      }
+      // los pisos de arriba se levantan y se desvanecen (de arriba hacia abajo); los de abajo vuelven a su sitio
+      for (const n of [...niveles].reverse()) if (n.i > i) anim(n, LIFT, 0, now + k++ * 90, 700);
+      for (const n of niveles) if (n.i <= i) anim(n, 0, 1, now, 700);
     },
     full() {
       api.visible = true;
       api.abierto = -1;
       const now = performance.now();
-      niveles.forEach((n, k) => {
-        if (n.target !== 0 || !n.shown) { n.target = 0; n.delay = now + k * 110; if (!n.shown) n.off = LIFT; }
-      });
+      niveles.forEach((n, k) => { if (n.off !== 0 || n.alpha < 1) anim(n, 0, 1, now + k * 90, 800); });
     },
     hide() {
       api.visible = false;
       api.abierto = -1;
-      for (const n of niveles) { n.model.show = false; n.shown = false; n.off = 0; n.target = 0; }
+      for (const n of niveles) { n.anim = null; n.off = 0; n.alpha = 0; place(n); }
     },
     setNight(v: number) {
       shader.setUniform('uNight', v);
     },
-    update(dt: number, now: number) {
+    update(_dt: number, now: number) {
       if (!api.visible) return;
       for (const n of niveles) {
-        if (now < n.delay) continue;
-        if (n.target === 0 && !n.shown) { n.shown = true; n.model.show = true; }
-        const d = n.target - n.off;
-        if (Math.abs(d) < 0.01) {
-          if (n.off !== n.target) { n.off = n.target; place(n); }
-          if (n.target !== 0 && n.shown) { n.shown = false; n.model.show = false; }
-          continue;
-        }
-        // caída con desaceleración (asienta suave sobre el piso de abajo)
-        const k = n.target === 0 ? 1 - Math.exp(-5.2 * dt) : 1 - Math.exp(-4.0 * dt);
-        n.off += d * k;
+        const a = n.anim;
+        if (!a || now < a.start) continue;
+        const t = Math.min(1, (now - a.start) / a.dur);
+        const e = easeOut(t);
+        n.off = a.o0 + (a.o1 - a.o0) * e;
+        n.alpha = a.a0 + (a.a1 - a.a0) * Math.min(1, t * 1.6);
         place(n);
+        if (t >= 1) n.anim = null;
       }
     },
   };

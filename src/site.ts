@@ -40,6 +40,8 @@ interface SectionInfo {
 }
 
 export interface Site {
+  /** suelta la carga del resto de la ciudad (se llama al terminar la transición de entrada) */
+  startBackground(): void;
   matrix: Cesium.Matrix4;
   inverse: Cesium.Matrix4;
   tileset: Cesium.Cesium3DTileset | null;
@@ -333,20 +335,28 @@ export async function loadSite(
   };
 
   // primer plano: hotel + manzanas vecinas + primera vegetación; el resto sigue en segundo plano
+  // carga en paralelo (de a 5): el primer plano (suelo + hotel + vecinos) abre la página,
+  // el resto sigue por detrás en el mismo orden de prioridad
   const FIRST = ground.length + 7;
-  for (let i = 0; i < Math.min(FIRST, queue.length); i++) {
-    onProgress(queue[i].label, 0.2 + (0.75 * i) / FIRST);
-    await loadOne(queue[i]);
-  }
+  const pool = async (items: SectionInfo[], n: number, onEach?: (k: number) => void) => {
+    let next = 0, hechos = 0;
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+      while (next < items.length) { const it = items[next++]; await loadOne(it); onEach?.(++hechos); }
+    }));
+  };
+  const first = queue.slice(0, FIRST);
+  await pool(first, 5, (k) => onProgress(first[Math.min(k, first.length - 1)].label, 0.2 + (0.75 * k) / first.length));
+  // el resto de la ciudad espera a que termine la transición de entrada (así la cámara vuela fluida)
+  let abrirFondo: () => void = () => {};
+  const fondo = new Promise<void>((r) => { abrirFondo = r; setTimeout(r, 16000); });
   const done = (async () => {
-    for (let i = FIRST; i < queue.length; i++) {
-      await loadOne(queue[i]);
-      await new Promise((r) => setTimeout(r, 60));
-    }
+    await fondo;
+    await pool(queue.slice(FIRST), 3);
     await aerial;
   })();
 
   return {
+    startBackground: () => abrirFondo(),
     matrix,
     inverse,
     tileset,

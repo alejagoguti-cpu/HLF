@@ -8,6 +8,7 @@ import { createTrafico, type Trafico } from './vehiculos';
 import { loadRevitHotel, createPisosPanel, type RevitHotel } from './revit';
 import { gradeStage, skyStage } from './shaders';
 import { createLookStudio, hexToRgbNorm, type LookParams, type PresetId } from './look-studio';
+import { luzDeHora, lluviaStage, crearPanelTiempo, type Clima } from './tiempo';
 
 /* ============================================================
    UNICENTRO · Hotel La Fontana · visor arquitectónico
@@ -156,7 +157,6 @@ const PRESETS: LightingPreset[] = [
 let currentNight = 0.04;
 let currentTarde = 1;
 let clockTween: { from: number; to: number; start: number; dur: number } | null = null;
-const clockMs = (iso: string) => Cesium.JulianDate.toDate(Cesium.JulianDate.fromIso8601(iso)).getTime();
 
 function applyLook(p: LookParams): void {
   (scene.light as Cesium.SunLight).intensity = p.sunIntensity;
@@ -191,39 +191,52 @@ if (scene.skyAtmosphere) {
   scene.skyAtmosphere.brightnessShift = -0.04;
 }
 
-function applyPreset(p: LightingPreset): void {
-  const from = Cesium.JulianDate.toDate(viewer.clock.currentTime).getTime();
-  clockTween = { from, to: clockMs(p.iso), start: performance.now(), dur: 1600 };
-  scene.fog.density = p.fog;
-  lookStudio.setActivePreset(p.id as PresetId);
-  applyLook(lookStudio.getPreset(p.id as PresetId));
-  // el cielo acompaña la hora: tarde limpia de montaña en Bogotá, profundo de noche
+/* ------------------------------------------------------------ reloj de 24 h y clima (como el simulador) */
+
+const HORA_PRESET: Record<string, number> = { dia: 10.17, tarde: 16.83, noche: 19.58 };
+let hora = 10.17;
+let clima: Clima = 'sol';
+let horaPlay = false;          // arranca al terminar la transición inicial
+let horaTween: { from: number; to: number; start: number } | null = null;
+let horaAplicada = -1;
+const lluvia = scene.postProcessStages.add(lluviaStage());
+const panelTiempo = crearPanelTiempo({
+  hora,
+  onHora: (h) => { hora = h; horaTween = null; horaPlay = false; panelTiempo.setPlay(false); },
+  onClima: (c) => { clima = c; horaAplicada = -1; },
+  onPlay: (on) => { horaPlay = on; },
+});
+
+/** Aplica la luz de la hora actual: sol real sobre Bogotá, cielo, sombras, ciudad y clima. */
+function aplicarHora(): void {
+  const est = luzDeHora(hora, clima, lookStudio.getPreset('dia'), lookStudio.getPreset('tarde'), lookStudio.getPreset('noche'));
+  viewer.clock.currentTime = est.fecha;
+  applyLook(est.look);
+  currentNight = est.night;
+  currentTarde = est.tarde;
+  site?.setNight(currentNight);
+  site?.setTarde(currentTarde);
+  revit?.setNight(currentNight);
+  sky.uniforms.uNight = currentNight;
+  sky.uniforms.uTarde = currentTarde;
+  grade.uniforms.uNight = currentNight;
+  grade.uniforms.uTarde = currentTarde;
+  lluvia.uniforms.uRain = est.lluvia;
   if (scene.skyAtmosphere) {
-    scene.skyAtmosphere.hueShift = 0;
-    scene.skyAtmosphere.saturationShift = p.id === 'tarde' ? 0.08 : p.id === 'noche' ? -0.25 : 0.06;
-    scene.skyAtmosphere.brightnessShift = p.id === 'noche' ? -0.55 : p.id === 'tarde' ? -0.04 : 0;
+    scene.skyAtmosphere.brightnessShift = -0.55 * currentNight - (clima === 'lluvia' ? 0.2 : clima === 'nublado' ? 0.08 : 0);
+    scene.skyAtmosphere.saturationShift = 0.06 - 0.3 * currentNight - (clima === 'sol' ? 0 : 0.35);
   }
-  const fromN = currentNight;
-  const fromT = currentTarde;
-  const start = performance.now();
-  const step = () => {
-    const t = Math.min(1, (performance.now() - start) / 1400);
-    const e = t * t * (3 - 2 * t);
-    currentNight = fromN + (p.night - fromN) * e;
-    currentTarde = fromT + (p.tarde - fromT) * e;
-    site?.setNight(currentNight);
-    revit?.setNight(currentNight);
-    site?.setTarde(currentTarde);
-    sky.uniforms.uNight = currentNight;
-    sky.uniforms.uTarde = currentTarde;
-    grade.uniforms.uNight = currentNight;
-    grade.uniforms.uTarde = currentTarde;
-    if (t < 1) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-  document.querySelectorAll<HTMLButtonElement>('[data-light]').forEach((b) => b.classList.toggle('on', b.dataset.light === p.id));
   const clockEl = $('clockLabel');
-  if (clockEl) clockEl.textContent = p.label;
+  if (clockEl) clockEl.textContent = est.etiqueta;
+  panelTiempo.setHora(hora, est.etiqueta);
+  const id = currentNight > 0.5 ? 'noche' : currentTarde > 0.5 ? 'tarde' : 'dia';
+  document.querySelectorAll<HTMLButtonElement>('[data-light]').forEach((b) => b.classList.toggle('on', b.dataset.light === id));
+}
+
+function applyPreset(p: LightingPreset): void {
+  horaPlay = false;
+  panelTiempo.setPlay(false);
+  horaTween = { from: hora, to: HORA_PRESET[p.id] ?? hora, start: performance.now() };
 }
 document.querySelectorAll<HTMLButtonElement>('[data-light]').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -314,16 +327,34 @@ async function autoPlayHotel(): Promise<void> {
   if (!site || !revit) return;
   stopOrbit();
   const c = revit.caja;
-  const hotelPivot = enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12);
-  // transición cinematográfica: del contexto (Unicentro y el barrio) al hotel
-  // tramo 1: barrido alto sobre el contexto · tramo 2: descenso girando hasta la fachada
-  cam.flyTo({ pivot: enuToWorld(-110, 150, 10), heading: -0.75, pitch: -0.62, range: 1750 }, 0);
-  await new Promise((r) => setTimeout(r, 400));
-  cam.flyTo({ pivot: enuToWorld(-170, 230, 10), heading: -0.1, pitch: -0.55, range: 820 }, 3.6);
-  await new Promise((r) => setTimeout(r, 3500));
-  cam.flyTo({ pivot: hotelPivot, heading: 0.55, pitch: -0.4, range: 230 }, 4.2);
-  // el hotel empieza a armarse cuando la cámara va llegando
-  await new Promise((r) => setTimeout(r, 2600));
+  // transición cinematográfica: del contexto (Unicentro y el barrio) al hotel, en una sola curva continua
+  // (Bézier cuadrática para el punto de mira, rumbo/inclinación interpolados y distancia en escala logarítmica,
+  // todo con una curva de velocidad suave de principio a fin: sin paradas entre tramos)
+  const P0 = { e: -110, n: 150, u: 10, h: -0.75, p: -0.62, r: 1750 };
+  const P1 = { e: -175, n: 235, u: 10, h: -0.05, p: -0.5, r: 640 };
+  const P2 = { e: (c[0] + c[2]) / 2, n: (c[1] + c[3]) / 2, u: 12, h: 0.55, p: -0.4, r: 230 };
+  const DUR = 10500;
+  let lanzado = false;
+  await new Promise<void>((done) => {
+    const t0 = performance.now();
+    const paso = () => {
+      const t = Math.min(1, (performance.now() - t0) / DUR);
+      const s = t * t * t * (t * (t * 6 - 15) + 10); // smootherstep: arranca y llega sin tirones
+      const q = (k: 'e' | 'n' | 'u' | 'h' | 'p') => (1 - s) * (1 - s) * P0[k] + 2 * (1 - s) * s * P1[k] + s * s * P2[k];
+      const lr = (1 - s) * (1 - s) * Math.log(P0.r) + 2 * (1 - s) * s * Math.log(P1.r) + s * s * Math.log(P2.r);
+      cam.flyTo({ pivot: enuToWorld(q('e'), q('n'), q('u')), heading: q('h'), pitch: q('p'), range: Math.exp(lr) }, 0);
+      if (!lanzado && t > 0.62) { lanzado = true; arrancarHotel(); }
+      if (t < 1) requestAnimationFrame(paso); else done();
+    };
+    requestAnimationFrame(paso);
+  });
+  site?.startBackground();
+  // el reloj del día empieza a correr cuando la cámara llega
+  horaPlay = true;
+  panelTiempo.setPlay(true);
+}
+function arrancarHotel(): void {
+  if (!site) return;
   const h = site.buildings.find((x) => x.s === 'Hotel');
   // select() vuela la cámara al hotel: aquí ya va en camino, así que se anula ese vuelo
   const flyTo = cam.flyTo.bind(cam);
@@ -458,8 +489,8 @@ $('cardWalk')?.addEventListener('click', () => {
 const statusEl = $('status');
 const statusText = $('statusText');
 
-async function waitForSceneReady(): Promise<void> {
-  const deadline = performance.now() + 25000;
+async function waitForSceneReady(maxMs = 25000): Promise<void> {
+  const deadline = performance.now() + maxMs;
   let stableSince = 0;
   while (performance.now() < deadline) {
     const globeOk = scene.globe.tilesLoaded;
@@ -505,15 +536,19 @@ async function boot(): Promise<void> {
   // detrás del telón la cámara espera en el plano de contexto donde empieza la transición
   cam.flyTo({ pivot: enuToWorld(-110, 150, 10), heading: -0.75, pitch: -0.62, range: 1750 }, 0);
 
-  await site.done;
-  progress('Cargando tráfico y parqueaderos...', 0.78);
-  trafico = await createTrafico(viewer, site.matrix);
-  if (trafico) await trafico.ready;
-  (window as unknown as { __ALL__?: boolean }).__ALL__ = true;
-
-  progress('Renderizando texturas y 3D Tiles...', 0.90);
-  await waitForSceneReady();
+  // el telón se levanta apenas están el hotel (Revit) y su entorno inmediato;
+  // el resto de la ciudad, la vegetación lejana y el tráfico siguen cargando por detrás
+  progress('Preparando el Hotel La Fontana...', 0.8);
+  await initRevit();
+  progress('Renderizando...', 0.92);
+  await waitForSceneReady(5000);
   progress('Listo', 1);
+  void (async () => {
+    await site!.done;
+    trafico = await createTrafico(viewer, site!.matrix);
+    if (trafico) await trafico.ready;
+    (window as unknown as { __ALL__?: boolean }).__ALL__ = true;
+  })();
 
   loadingEl.classList.add('done');
   void autoPlayHotel();
@@ -544,6 +579,17 @@ function tick(): void {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
 
+  if (horaTween) {
+    const t = Math.min(1, (now - horaTween.start) / 1800);
+    const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    hora = horaTween.from + (horaTween.to - horaTween.from) * e;
+    if (t >= 1) horaTween = null;
+  } else if (horaPlay) {
+    hora += dt / 7;
+    if (hora > 20.6) hora = 5.6;
+  }
+  if (Math.abs(hora - horaAplicada) > 0.004 || horaAplicada < 0) { horaAplicada = hora; aplicarHora(); }
+  lluvia.uniforms.uTime = now * 0.001;
   if (clockTween) {
     const t = Math.min(1, (now - clockTween.start) / clockTween.dur);
     const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;

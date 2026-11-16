@@ -38,10 +38,38 @@ export interface RevitHotel {
   update(dt: number, now: number): void;
 }
 
-function revitShader(): Cesium.CustomShader {
+/** Decodifica una imagen a píxeles; si no llega (red o memoria), devuelve un color plano: el visor nunca se detiene por una textura. */
+async function pixels(url: string, fallback: [number, number, number]): Promise<Cesium.TextureUniform> {
+  try {
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = url;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, c.width, c.height);
+    return new Cesium.TextureUniform({
+      typedArray: new Uint8Array(d.data.buffer),
+      width: c.width,
+      height: c.height,
+      repeat: true,
+      minificationFilter: Cesium.TextureMinificationFilter.LINEAR_MIPMAP_LINEAR,
+      magnificationFilter: Cesium.TextureMagnificationFilter.LINEAR,
+    });
+  } catch {
+    return new Cesium.TextureUniform({ typedArray: new Uint8Array([...fallback, 255]), width: 1, height: 1 });
+  }
+}
+
+function revitShader(ladrillo: Cesium.TextureUniform, teja: Cesium.TextureUniform): Cesium.CustomShader {
   return new Cesium.CustomShader({
     uniforms: {
       uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
+      uLadrillo: { type: Cesium.UniformType.SAMPLER_2D, value: ladrillo },
+      uTeja: { type: Cesium.UniformType.SAMPLER_2D, value: teja },
     },
     varyings: { vRP: Cesium.VaryingType.VEC3, vRN: Cesium.VaryingType.VEC3 },
     vertexShaderText: `
@@ -52,52 +80,72 @@ function revitShader(): Cesium.CustomShader {
     `,
     fragmentShaderText: `
       float rh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float rn(vec2 p) {
+        vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(rh(i), rh(i + vec2(1.0, 0.0)), f.x), mix(rh(i + vec2(0.0, 1.0)), rh(i + vec2(1.0, 1.0)), f.x), f.y);
+      }
+      // foto del material: se conserva su dibujo y parte de su color, llevada al tono real del hotel
+      vec3 foto(sampler2D t, vec2 uv, vec3 tono, float croma) {
+        vec3 c = czm_srgbToLinear(texture(t, uv).rgb);
+        vec3 m = czm_srgbToLinear(textureLod(t, uv, 9.0).rgb);
+        float lum = dot(c, vec3(0.3333)) / max(dot(m, vec3(0.3333)), 0.01);
+        vec3 tinte = c / max(m, vec3(0.01));
+        return tono * mix(vec3(lum), tinte, croma);
+      }
       void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
         vec4 c = fsInput.attributes.color_0;
         float cat = floor(c.a * 255.0 + 0.5);
         vec3 col = czm_srgbToLinear(c.rgb);
         float rough = 0.85;
         vec3 spec = vec3(0.04);
-        float dist = length(fsInput.attributes.positionEC);
-        float near = 1.0 - smoothstep(40.0, 160.0, dist);
         vec3 n = normalize(vRN);
         float vertical = 1.0 - smoothstep(0.3, 0.7, abs(n.y));
+        float big = rn(vRP.xz * 0.12 + vRP.y * 0.2);
 
         if (cat < 20.0) {
-          // muros: ladrillo a la vista del hotel (hiladas de 7 cm, trabado), solo en paramentos
+          // fachada: ladrillo a la vista real (foto), con variación de tono por paños
           float along = abs(n.x) > abs(n.z) ? vRP.z : vRP.x;
-          float hil = fract(vRP.y / 0.075);
-          float trab = fract(along / 0.25 + step(1.0, mod(floor(vRP.y / 0.075), 2.0)) * 0.5);
-          float junta = max(1.0 - smoothstep(0.0, 0.16, hil), 1.0 - smoothstep(0.0, 0.06, trab));
-          float pieza = rh(floor(vec2(along / 0.25, vRP.y / 0.075)));
-          col *= mix(1.0, 0.86 + 0.26 * pieza, near * vertical);
-          col = mix(col, col * vec3(0.80, 0.79, 0.78), junta * near * vertical * 0.8);
-          // coronación del muro cortado: se lee la planta
-          col = mix(col, vec3(0.82, 0.80, 0.76), (1.0 - vertical) * 0.85);
+          vec3 ladr = foto(uLadrillo, vec2(along, vRP.y) / 1.5, vec3(0.34, 0.135, 0.075), 0.75);
+          ladr *= 0.88 + 0.24 * big;
+          // coronación del muro cortado (planta): pañete claro
+          col = mix(vec3(0.62, 0.60, 0.55), ladr, vertical);
+          rough = 0.9;
         } else if (cat < 40.0) {
-          col *= 0.94 + 0.10 * rh(floor(vRP.xz * 1.6));          // losas: concreto
+          col = vec3(0.50, 0.49, 0.46) * (0.92 + 0.14 * rn(vRP.xz * 1.2));     // losas: concreto pulido
+          rough = 0.7;
         } else if (cat < 60.0) {
-          float canal = abs(fract(dot(vRP.xz, vec2(0.7, 0.7)) * 3.0) - 0.5) * 2.0;
-          col *= 0.78 + 0.26 * (1.0 - canal * canal * near);      // cubiertas: teja
+          // cubierta: teja de barro real (foto), con las hiladas siguiendo la pendiente
+          vec2 baja = length(n.xz) > 0.05 ? normalize(n.xz) : vec2(0.0, 1.0);
+          vec2 uv = vec2(dot(vRP.xz, vec2(-baja.y, baja.x)), dot(vRP.xz, baja) / max(abs(n.y), 0.35));
+          col = foto(uTeja, uv / 1.3, vec3(0.36, 0.125, 0.06), 0.8) * (0.86 + 0.28 * big);
+          rough = 0.88;
         } else if (cat < 80.0 || (cat > 100.0 && cat < 120.0)) {
-          // ventanas y paneles de muro cortina: vidrio
+          // ventanas y muro cortina: vidrio con reflejo del cielo y marco claro en el borde
           vec3 v = normalize(-fsInput.attributes.positionEC);
           float fres = pow(1.0 - clamp(abs(dot(normalize(material.normalEC), v)), 0.0, 1.0), 4.0);
-          col = mix(col * 0.55, vec3(0.62, 0.70, 0.78), 0.25 + 0.6 * fres);
-          rough = 0.1;
-          spec = vec3(0.06);
-        } else if (cat > 120.0 && cat < 160.0) {
-          rough = 0.45;                                           // montantes y barandas: metal oscuro
+          col = mix(vec3(0.07, 0.10, 0.12), vec3(0.45, 0.56, 0.66), 0.18 + 0.7 * fres);
+          rough = 0.06;
+          spec = vec3(0.08);
+        } else if (cat < 100.0) {
+          col = vec3(0.20, 0.11, 0.06) * (0.85 + 0.3 * rn(vec2(vRP.y * 14.0, vRP.x + vRP.z)));  // puertas: madera
+          rough = 0.6;
+        } else if (cat < 140.0) {
+          col = vec3(0.045, 0.047, 0.05);                         // montantes: aluminio anodizado oscuro
+          rough = 0.35; spec = vec3(0.35);
+        } else if (cat < 160.0) {
+          col = vec3(0.028, 0.028, 0.03);                         // barandas: hierro forjado negro, satinado
+          rough = 0.3; spec = vec3(0.45);
+        } else {
+          col = vec3(0.52, 0.50, 0.47) * (0.92 + 0.14 * rn(vRP.xz * 1.5 + vRP.y)); // columnas, escaleras y vigas: concreto
         }
         material.diffuse = col * mix(1.0, 0.4, uNight);
         material.roughness = rough;
         material.specular = spec;
-        material.emissive = col * 0.16 * (1.0 - uNight);
+        material.emissive = col * 0.14 * (1.0 - uNight);
       }
     `,
   });
 }
-
 
 export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matrix4): Promise<RevitHotel | null> {
   const base = ASSETS.secciones;
@@ -107,7 +155,8 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
   } catch {
     return null;
   }
-  const shader = revitShader();
+  const [ladrillo, teja] = await Promise.all([pixels(base + 'tex_ladrillo.webp', [107, 84, 76]), pixels(base + 'tex_teja.webp', [90, 52, 28])]);
+  const shader = revitShader(ladrillo, teja);
   const niveles: Nivel[] = [];
   for (const info of man.niveles) {
     try {

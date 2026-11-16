@@ -8,7 +8,7 @@ import { createTrafico, type Trafico } from './vehiculos';
 import { loadRevitHotel, createPisosPanel, type RevitHotel } from './revit';
 import { gradeStage, skyStage } from './shaders';
 import { createLookStudio, hexToRgbNorm, type LookParams, type PresetId } from './look-studio';
-import { luzDeHora, lluviaStage, crearPanelTiempo, type Clima } from './tiempo';
+import { luzDeHora, lluviaStage, crearPanelTiempo, aplicarFiltro, type Clima, type Filtro } from './tiempo';
 
 /* ============================================================
    UNICENTRO · Hotel La Fontana · visor arquitectónico
@@ -196,6 +196,7 @@ if (scene.skyAtmosphere) {
 const HORA_PRESET: Record<string, number> = { dia: 10.17, tarde: 16.83, noche: 19.58 };
 let hora = 10.17;
 let clima: Clima = 'sol';
+let filtro: Filtro = 'natural';
 let horaPlay = false;          // arranca al terminar la transición inicial
 let horaTween: { from: number; to: number; start: number } | null = null;
 let horaAplicada = -1;
@@ -205,13 +206,14 @@ const panelTiempo = crearPanelTiempo({
   onHora: (h) => { hora = h; horaTween = null; horaPlay = false; panelTiempo.setPlay(false); },
   onClima: (c) => { clima = c; horaAplicada = -1; },
   onPlay: (on) => { horaPlay = on; },
+  onFiltro: (f) => { filtro = f; horaAplicada = -1; },
 });
 
 /** Aplica la luz de la hora actual: sol real sobre Bogotá, cielo, sombras, ciudad y clima. */
 function aplicarHora(): void {
   const est = luzDeHora(hora, clima, lookStudio.getPreset('dia'), lookStudio.getPreset('tarde'), lookStudio.getPreset('noche'));
   viewer.clock.currentTime = est.fecha;
-  applyLook(est.look);
+  applyLook(aplicarFiltro(est.look, filtro, est.night));
   currentNight = est.night;
   currentTarde = est.tarde;
   site?.setNight(currentNight);
@@ -536,19 +538,25 @@ async function boot(): Promise<void> {
   // detrás del telón la cámara espera en el plano de contexto donde empieza la transición
   cam.flyTo({ pivot: enuToWorld(-110, 150, 10), heading: -0.75, pitch: -0.62, range: 1750 }, 0);
 
-  // el telón se levanta apenas están el hotel (Revit) y su entorno inmediato;
-  // el resto de la ciudad, la vegetación lejana y el tráfico siguen cargando por detrás
-  progress('Preparando el Hotel La Fontana...', 0.8);
+  // no se entra hasta que esté todo cargado: hotel (Revit), ciudad completa, vegetación y tráfico
+  site.startBackground();
+  progress('Preparando el Hotel La Fontana...', 0.55);
   await initRevit();
-  progress('Renderizando...', 0.92);
-  await waitForSceneReady(5000);
+  progress('Cargando la ciudad y la vegetación...', 0.7);
+  await site.done;
+  progress('Cargando tráfico y parqueaderos...', 0.85);
+  trafico = await createTrafico(viewer, site.matrix);
+  if (trafico) await trafico.ready;
+  (window as unknown as { __ALL__?: boolean }).__ALL__ = true;
+  progress('Renderizando...', 0.94);
+  await waitForSceneReady(12000);
   progress('Listo', 1);
-  void (async () => {
-    await site!.done;
-    trafico = await createTrafico(viewer, site!.matrix);
-    if (trafico) await trafico.ready;
-    (window as unknown as { __ALL__?: boolean }).__ALL__ = true;
-  })();
+  const entrar = $<HTMLButtonElement>('btnEntrar');
+  if (entrar) {
+    entrar.disabled = false;
+    entrar.textContent = 'Entrar';
+    await new Promise<void>((r) => entrar.addEventListener('click', () => r(), { once: true }));
+  }
 
   loadingEl.classList.add('done');
   void autoPlayHotel();

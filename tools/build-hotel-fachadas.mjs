@@ -62,7 +62,7 @@ const mats = {
   },
   marco: {
     P: [], N: [], UV: [], I: [], n: 0, hasUV: false,
-    def: { name: 'MarcoVentana', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.16, 0.17, 0.19, 1], metallicFactor: 0.45, roughnessFactor: 0.42 } },
+    def: { name: 'MarcoVentana', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.025, 0.025, 0.028, 1], metallicFactor: 0.45, roughnessFactor: 0.42 } },
   },
   vidrio: {
     P: [], N: [], UV: [], I: [], n: 0, hasUV: false,

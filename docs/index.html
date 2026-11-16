@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#0b0f14" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%239dc4ea%27 stroke-width=%271.6%27%3E%3Cpath d=%27M12 2.6 21 7.4v9.2L12 21.4 3 16.6V7.4z%27/%3E%3Cpath d=%27M3 7.4 12 12.2l9-4.8M12 12.2v9.2%27/%3E%3C/svg%3E" />
-  <title>HOTEL LA FONTANA · Bogotá · Visor arquitectónico</title>
-  <script type="module" crossorigin src="/HLF/assets/index-BF6fl2d3.js"></script>
+  <title>HOTEL LA FONTANA · Bogotá · Visor arquitectónico</title>
+  <script type="module" crossorigin src="/HLF/assets/index-Cl00JTSo.js"></script>
   <link rel="modulepreload" crossorigin href="/HLF/assets/cesium-NqgYyKJC.js">
-  <link rel="stylesheet" crossorigin href="/HLF/assets/index-D7xQ6nvp.css">
+  <link rel="stylesheet" crossorigin href="/HLF/assets/index-Dexj-QKh.css">
 </head>
 <body>
   <div id="cesiumContainer"></div>
@@ -60,22 +60,25 @@
     </div>
   </nav>
 
-  <div id="loading">
+  <div id="loading" class="portada">
+    <div class="portada-foto" aria-hidden="true"></div>
+    <div class="portada-velo" aria-hidden="true"></div>
     <div class="inner">
       <div class="logos">
         <img class="logo-baco" src="./logos/baco.png" alt="BACO Studio" />
         <span class="logo-sep" aria-hidden="true"></span>
         <img class="logo-estelar" src="./logos/estelar.png" alt="Estelar" />
       </div>
-      <h2>HOTEL ESTELAR LA FONTANA</h2>
-      <p class="sub">MASTERPLAN 3D · REMODELACIÓN PISO 2</p>
+      <p class="kicker">Hotel Estelar La Fontana · Bogotá</p>
+      <h1>Remodelación<br />Piso 2</h1>
       <div class="track"><div id="loadBar"></div></div>
       <div class="meta">
         <span id="loadLabel">Cargando el modelo del hotel...</span>
         <span id="loadPct">0%</span>
       </div>
+      <button id="btnEntrar" disabled>Cargando…</button>
     </div>
   </div>
-
+
 </body>
 </html>

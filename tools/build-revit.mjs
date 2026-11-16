@@ -16,6 +16,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { Glb } from './glb-writer.mjs';
 import { materas } from './materas.mjs';
+import { esquinaOeste } from './esquina.mjs';
 
 // ocupación de losas de todos los niveles (para saber qué lado de cada ventana es exterior)
 const LOSAS = [];
@@ -72,6 +73,13 @@ for (let i = 0; i < 12; i++) {
     for (let t = 0; t < m.T.length; t += 3) {
       const v = [m.T[t], m.T[t + 1], m.T[t + 2]].map((k) => [m.V[k * 3], m.V[k * 3 + 1], m.V[k * 3 + 2]]);
       let col = [...rgb, code];
+      if (cat === 'ventanas' || cat === 'paneles' || cat === 'puertas') {
+        const [p, q, r] = v;
+        const ab = Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]), bc = Math.hypot(r[0] - q[0], r[1] - q[1], r[2] - q[2]), ca = Math.hypot(p[0] - r[0], p[1] - r[1], p[2] - r[2]);
+        const cx = (q[1] - p[1]) * (r[2] - p[2]) - (q[2] - p[2]) * (r[1] - p[1]), cy = (q[2] - p[2]) * (r[0] - p[0]) - (q[0] - p[0]) * (r[2] - p[2]), cz = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+        const alto = Math.hypot(cx, cy, cz) / Math.max(ab, bc, ca);
+        if (cat !== 'puertas' ? alto < 0.12 : alto < 0.1) col = [20, 20, 22, 72];
+      }
       if (m.codes) {
         const cc = m.codes[m.T[t]];
         col = cc === 240 ? [150, 78, 52, cc] : cc === 250 ? [44, 70, 34, cc] : cc === 251 ? [64, 98, 46, cc] : [92, 128, 60, cc];
@@ -79,6 +87,17 @@ for (let i = 0; i < 12; i++) {
       TRIS.push({ v, col, cat });
     }
   }
+}
+{
+  const inv = ([e, n, u]) => {
+    const mx = (e * CA + n * SA) / S, my = (-e * SA + n * CA) / S;
+    const X = mx - A.cx, Y = my - A.cy;
+    return [X * CT + Y * ST + A.rx, -X * ST + Y * CT + A.ry, u - A.z];
+  };
+  const COL = { 10: [152, 86, 62, 10], 30: [176, 172, 164, 30], 50: [166, 96, 70, 50], 70: [150, 172, 186, 70], 72: [20, 20, 22, 72] };
+  const t = esquinaOeste();
+  for (const { v, code } of t) TRIS.push({ v: v.map(inv), col: COL[code], cat: 'esquina' });
+  console.log('esquina oeste:', t.length, 'triángulos');
 }
 const cuts = levels.map((l, k) => (k === 0 ? -1e9 : l.elev - 0.35));
 cuts.push(1e9);

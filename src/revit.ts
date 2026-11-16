@@ -122,8 +122,17 @@ function revitShader(ladrillo: Cesium.TextureUniform, teja: Cesium.TextureUnifor
           // cubierta: teja de barro real (foto), con las hiladas siguiendo la pendiente
           vec2 baja = length(n.xz) > 0.05 ? normalize(n.xz) : vec2(0.0, 1.0);
           vec2 uv = vec2(dot(vRP.xz, vec2(-baja.y, baja.x)), dot(vRP.xz, baja) / max(abs(n.y), 0.35));
-          col = foto(uTeja, uv / 1.3, vec3(0.36, 0.125, 0.06), 0.8) * (0.86 + 0.28 * big);
+          col = foto(uTeja, uv / 0.75, vec3(0.30, 0.11, 0.055), 0.85) * (0.82 + 0.3 * big);
+          // traslapo: cada hilada proyecta sombra sobre la siguiente
+          float hil = fract(uv.y / 0.38);
+          col *= 0.68 + 0.32 * smoothstep(0.0, 0.35, hil);
+          float canalT = abs(fract(uv.x / 0.24) - 0.5) * 2.0;
+          col *= 0.84 + 0.16 * (1.0 - canalT * canalT);
           rough = 0.88;
+        } else if (cat > 71.0 && cat < 74.0) {
+          // perfilería de ventanas: aluminio negro mate
+          col = vec3(0.018, 0.018, 0.02);
+          rough = 0.45; spec = vec3(0.25);
         } else if (cat < 80.0 || (cat > 100.0 && cat < 120.0)) {
           // vidrio: reflejo del cielo, de las fachadas de enfrente y del interior, con Fresnel real
           vec3 v = normalize(-fsInput.attributes.positionEC);

@@ -13,6 +13,25 @@ import type { LookParams } from './look-studio';
 
 export type Clima = 'sol' | 'nublado' | 'lluvia';
 
+/** Filtros de imagen (como en una cámara): se aplican encima de la luz de la hora y el clima. */
+export type Filtro = 'natural' | 'calido' | 'claro' | 'cine' | 'dramatico' | 'panel';
+export const FILTROS: Record<Exclude<Filtro, 'panel'>, { nombre: string; o: Partial<LookParams>; sol?: number }> = {
+  natural:   { nombre: 'Natural',        o: { exposure: 1.04, contrast: 0.2, saturation: 1.05, tintColor: '#ffffff', vignette: 0.18, shadowDarkness: 0.45, bloomBrightness: -0.6 } },
+  calido:    { nombre: 'Cálido',         o: { exposure: 1.06, contrast: 0.24, saturation: 1.14, tintColor: '#fff0dc', vignette: 0.25, shadowDarkness: 0.42, bloomBrightness: -0.5 }, sol: 1.05 },
+  claro:     { nombre: 'Render claro',   o: { exposure: 1.16, contrast: 0.1, saturation: 0.96, tintColor: '#fbfcff', vignette: 0.08, shadowDarkness: 0.28, bloomBrightness: -0.7 } },
+  cine:      { nombre: 'Cinematográfico', o: { exposure: 0.98, contrast: 0.42, saturation: 0.86, tintColor: '#f3ece3', vignette: 0.55, shadowDarkness: 0.5, bloomBrightness: -0.45 } },
+  dramatico: { nombre: 'Dramático',      o: { exposure: 0.94, contrast: 0.55, saturation: 1.1, tintColor: '#fff6ec', vignette: 0.62, shadowDarkness: 0.62, bloomBrightness: -0.4 }, sol: 1.12 },
+};
+export function aplicarFiltro(look: LookParams, f: Filtro, night: number): LookParams {
+  if (f === 'panel') return look;
+  const F = FILTROS[f];
+  const o = { ...look, ...F.o } as LookParams;
+  // de noche se conserva la oscuridad de la escena: la exposición del filtro pesa menos
+  o.exposure = look.exposure + ((F.o.exposure ?? look.exposure) - look.exposure) * (1 - night);
+  o.sunIntensity = look.sunIntensity * (F.sol ?? 1);
+  return o;
+}
+
 const LAT = (4.70 * Math.PI) / 180;
 const FECHA = '2026-11-16';
 // declinación del 16 de noviembre ≈ −18,6°; mediodía solar en Bogotá ≈ 11:41
@@ -133,19 +152,22 @@ export function crearPanelTiempo(opts: {
   onHora: (h: number) => void;
   onClima: (c: Clima) => void;
   onPlay: (on: boolean) => void;
+  onFiltro: (f: Filtro) => void;
 }): { setHora(h: number, etiqueta: string): void; setPlay(on: boolean): void } {
   const st = document.createElement('style');
   st.textContent = `
     .tiempo { position: fixed; left: 50%; transform: translateX(-50%); bottom: 82px; z-index: 6; display: flex; align-items: center; gap: 10px;
       padding: 8px 12px; border-radius: 14px; background: rgba(12,16,22,.62); border: 1px solid rgba(255,255,255,.13);
       backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); color: #eef2f7;
-      font: 500 12px ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif; width: min(640px, calc(100vw - 24px)); }
+      font: 500 12px ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif; width: min(820px, calc(100vw - 24px)); }
     .tiempo button { all: unset; cursor: pointer; padding: 6px 10px; border-radius: 9px; color: rgba(238,242,247,.75); white-space: nowrap; }
     .tiempo button:hover { background: rgba(255,255,255,.08); color: #fff; }
     .tiempo button.on { background: #e8eef6; color: #0a0e14; font-weight: 600; }
     .tiempo .play { width: 26px; text-align: center; font-size: 13px; }
     .tiempo input[type=range] { flex: 1; min-width: 80px; accent-color: #f2c48a; }
     .tiempo .h { font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; font-weight: 600; }
+    .tiempo select { background: rgba(255,255,255,.08); color: #eef2f7; border: 1px solid rgba(255,255,255,.16); border-radius: 9px; padding: 5px 8px; font: inherit; }
+    .tiempo select option { color: #111; }
     .tiempo .sep { width: 1px; height: 18px; background: rgba(255,255,255,.14); }
     @media (max-width: 720px) { .tiempo { bottom: 74px; flex-wrap: wrap; } }
   `;
@@ -159,11 +181,22 @@ export function crearPanelTiempo(opts: {
     <span class="sep"></span>
     <button data-clima="sol" class="on" title="Día soleado">☀ Soleado</button>
     <button data-clima="nublado" title="Cielo nublado">☁ Nublado</button>
-    <button data-clima="lluvia" title="Lluvia">☂ Lluvia</button>`;
+    <button data-clima="lluvia" title="Lluvia">☂ Lluvia</button>
+    <span class="sep"></span>
+    <select aria-label="Filtro de imagen" title="Filtro de imagen">
+      <option value="natural" selected>Natural</option>
+      <option value="calido">Cálido</option>
+      <option value="claro">Render claro</option>
+      <option value="cine">Cinematográfico</option>
+      <option value="dramatico">Dramático</option>
+      <option value="panel">Ajuste manual</option>
+    </select>`;
   document.body.appendChild(el);
   const range = el.querySelector('input') as HTMLInputElement;
   const lab = el.querySelector('.h') as HTMLSpanElement;
   const play = el.querySelector('.play') as HTMLButtonElement;
+  const sel = el.querySelector('select') as HTMLSelectElement;
+  sel.addEventListener('change', () => opts.onFiltro(sel.value as Filtro));
   range.value = String(opts.hora);
   range.addEventListener('input', () => opts.onHora(Number(range.value)));
   let playing = true;

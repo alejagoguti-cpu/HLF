@@ -272,7 +272,7 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
         n.off = DROP;
         n.alpha = 0;
         place(n);
-        anim(n, 0, 1, t0 + k * 560, 900);
+        anim(n, 0, 1, t0 + k * 700, 1100);
       });
     },
     openAt(i: number) {

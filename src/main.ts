@@ -9,6 +9,7 @@ import { loadRevitHotel, createPisosPanel, type RevitHotel } from './revit';
 import { gradeStage, skyStage } from './shaders';
 import { createLookStudio, hexToRgbNorm, type LookParams, type PresetId } from './look-studio';
 import { luzDeHora, lluviaStage, crearPanelTiempo, aplicarFiltro, type Clima, type Filtro } from './tiempo';
+import { createMasterplanPins } from './pins';
 
 /* ============================================================
    UNICENTRO · Hotel La Fontana · visor arquitectónico
@@ -301,6 +302,32 @@ btnOrbit?.addEventListener('click', () => {
   btnOrbit.classList.toggle('on', autoOrbit);
   if (autoOrbit && cam.isWalking) cam.exitWalk();
 });
+
+const masterplanPins = createMasterplanPins(viewer, (pin) => {
+  stopOrbit();
+  if (pin.id === 'piso2') {
+    btnPiso2?.click();
+    return;
+  }
+  if (pin.id === 'hotel' && site) {
+    const h = site.buildings.find((x) => x.s === 'Hotel');
+    if (h) { select(null); select(h); return; }
+  }
+  const pivot = enuToWorld(pin.enu[0], pin.enu[1], pin.enu[2]);
+  cam.flyTo({
+    pivot,
+    heading: pin.camera.heading,
+    pitch: pin.camera.pitch,
+    range: pin.camera.range,
+  }, pin.camera.dur ?? 2.0);
+});
+
+const btnPins = $<HTMLButtonElement>('btnPins');
+btnPins?.addEventListener('click', () => {
+  const next = !masterplanPins.visible;
+  masterplanPins.setVisible(next);
+  btnPins.classList.toggle('on', next);
+});
 container.addEventListener('pointerdown', stopOrbit);
 container.addEventListener('wheel', stopOrbit, { passive: true });
 addEventListener('keydown', (e) => {
@@ -351,11 +378,12 @@ async function autoPlayHotel(): Promise<void> {
       const q = (k: 'e' | 'n' | 'u' | 'h' | 'p') => (1 - s) * (1 - s) * P0[k] + 2 * (1 - s) * s * P1[k] + s * s * P2[k];
       const lr = (1 - s) * (1 - s) * Math.log(P0.r) + 2 * (1 - s) * s * Math.log(P1.r) + s * s * Math.log(P2.r);
       cam.flyTo({ pivot: enuToWorld(q('e'), q('n'), q('u')), heading: q('h'), pitch: q('p'), range: Math.exp(lr) }, 0);
-      if (!lanzado && t > 0.62) { lanzado = true; arrancarHotel(); }
       if (t < 1) requestAnimationFrame(paso); else done();
     };
     requestAnimationFrame(paso);
   });
+  // la milhoja arranca cuando la cámara ya quedó quieta en el encuadre final
+  if (!lanzado) { lanzado = true; arrancarHotel(); }
   site?.startBackground();
   // el reloj del día empieza a correr cuando la cámara llega
   // la hora queda fija (sin reloj corriendo)

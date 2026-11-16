@@ -221,9 +221,11 @@ export async function loadSite(
         float nl = max(dot(n, sunDir), 0.0);
         float trans = max(dot(-n, sunDir), 0.0) * 0.35;
         vec3 sol = vec3(1.0, 0.94, 0.86) * (nl * 0.85 + trans);
-        vec3 col = c * (amb + sol) * 1.08;
+        vec3 col = c * (amb + sol) * 1.04;
         if (any(isnan(col))) col = c;
-        material.diffuse = mix(col, c * vec3(0.18, 0.22, 0.32), uNight);
+        vec3 finalCol = mix(col, c * vec3(0.18, 0.22, 0.32), uNight);
+        material.emissive = finalCol;
+        material.diffuse = finalCol;
       }
     `,
   });

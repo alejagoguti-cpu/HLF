@@ -170,6 +170,7 @@ export async function loadSite(
   list.push({ key: 'hotel_cubiertas', file: 'hotel_cubiertas.glb', kind: 'cubierta', label: 'Cubiertas del hotel', dist: -1 });
   list.push({ key: 'hotel_plazoleta', file: 'hotel_plazoleta.glb', kind: 'cubierta_pbr', label: 'Plazoleta y acceso · Hotel', dist: -0.8 });
   list.push({ key: 'torres_vecinas', file: 'torres_vecinas.glb', kind: 'cubierta_pbr', label: 'Torres vecinas PBR', dist: -0.6 });
+  list.push({ key: 'esquina_ak15', file: 'esquina_ak15.glb', kind: 'cubierta_pbr', label: 'Esquina Ak 15 PBR', dist: -0.55 });
   list.push({ key: 'unicentro_cubierta', file: 'unicentro_cubierta.glb', kind: 'cubierta_pbr', label: 'Cubierta · Unicentro', dist: -0.5 });
   list.sort((a, b) => a.dist - b.dist);
   const CAPA: Record<string, [number, string]> = {

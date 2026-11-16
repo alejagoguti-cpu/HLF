@@ -122,12 +122,39 @@ function revitShader(ladrillo: Cesium.TextureUniform, teja: Cesium.TextureUnifor
           col = foto(uTeja, uv / 1.3, vec3(0.36, 0.125, 0.06), 0.8) * (0.86 + 0.28 * big);
           rough = 0.88;
         } else if (cat < 80.0 || (cat > 100.0 && cat < 120.0)) {
-          // ventanas y muro cortina: vidrio con reflejo del cielo y marco claro en el borde
+          // vidrio: reflejo del cielo, de las fachadas de enfrente y del interior, con Fresnel real
           vec3 v = normalize(-fsInput.attributes.positionEC);
-          float fres = pow(1.0 - clamp(abs(dot(normalize(material.normalEC), v)), 0.0, 1.0), 4.0);
-          col = mix(vec3(0.07, 0.10, 0.12), vec3(0.45, 0.56, 0.66), 0.18 + 0.7 * fres);
-          rough = 0.06;
-          spec = vec3(0.08);
+          vec3 nE = normalize(material.normalEC);
+          float cosT = clamp(abs(dot(nE, v)), 0.0, 1.0);
+          float fres = 0.04 + 0.96 * pow(1.0 - cosT, 5.0);
+          // dirección reflejada en coordenadas del mundo (y = arriba en el modelo)
+          vec3 rEC = reflect(-v, nE);
+          vec3 rW = normalize((czm_inverseViewRotation * rEC));
+          vec3 up = normalize(czm_inverseViewRotation * (czm_view * vec4(0.0, 0.0, 1.0, 0.0)).xyz);
+          float alt = dot(rW, normalize(czm_viewerPositionWC));
+          // cielo: horizonte claro, cenit azul, nubes suaves
+          vec3 cielo = mix(vec3(0.78, 0.83, 0.88), vec3(0.36, 0.52, 0.74), smoothstep(0.0, 0.6, alt));
+          float nube = smoothstep(0.55, 0.85, rn(rW.xz / max(alt, 0.08) * 1.6));
+          cielo = mix(cielo, vec3(0.92), nube * 0.45 * smoothstep(0.02, 0.3, alt));
+          // bajo el horizonte se refleja la ciudad: bandas oscuras de fachadas con ventanas
+          float banda = step(0.5, rn(vec2(floor(atan(rW.z, rW.x) * 24.0), 3.0)));
+          vec3 ciudad = mix(vec3(0.16, 0.15, 0.15), vec3(0.34, 0.30, 0.27), banda) * (0.8 + 0.4 * rn(floor(vRP.xy * 3.0)));
+          vec3 refl = alt > 0.0 ? cielo : mix(ciudad, vec3(0.22, 0.24, 0.24), smoothstep(-0.05, -0.4, alt));
+          refl = mix(refl, vec3(0.03, 0.04, 0.07), uNight);
+          // interior: penumbra con cortinas claras al fondo
+          vec3 interior = mix(vec3(0.035, 0.04, 0.045), vec3(0.20, 0.18, 0.15), rn(floor(vRP.xz * 0.9) + floor(vRP.y / 3.0)) * 0.6);
+          interior += vec3(1.0, 0.72, 0.42) * uNight * step(0.45, rn(floor(vRP.xz * 0.7) + floor(vRP.y / 3.0) * 7.0)) * 0.9;
+          // leve ondulación del vidrio flotado (los reflejos no son perfectamente planos)
+          float onda = (rn(vec2(vRP.y * 2.0, vRP.x + vRP.z)) - 0.5) * 0.06;
+          col = mix(interior, refl * (1.0 + onda), clamp(fres + 0.22, 0.0, 1.0));
+          rough = 0.02;
+          spec = vec3(0.9);
+          material.emissive = vec3(0.0);
+          material.diffuse = col * 0.35;
+          material.roughness = rough;
+          material.specular = spec;
+          material.emissive = col * 0.65;
+          return;
         } else if (cat < 100.0) {
           col = vec3(0.20, 0.11, 0.06) * (0.85 + 0.3 * rn(vec2(vRP.y * 14.0, vRP.x + vRP.z)));  // puertas: madera
           rough = 0.6;
@@ -137,6 +164,20 @@ function revitShader(ladrillo: Cesium.TextureUniform, teja: Cesium.TextureUnifor
         } else if (cat < 160.0) {
           col = vec3(0.028, 0.028, 0.03);                         // barandas: hierro forjado negro, satinado
           rough = 0.3; spec = vec3(0.45);
+        } else if (cat > 235.0 && cat < 245.0) {
+          // matera de barro cocido, con manchas de humedad
+          col = vec3(0.30, 0.12, 0.06) * (0.82 + 0.3 * rn(vRP.xz * 6.0 + vRP.y * 4.0)) * (0.85 + 0.15 * smoothstep(0.0, 0.25, fract(vRP.y)));
+          rough = 0.92;
+        } else if (cat > 245.0) {
+          // hojas: tres tonos de verde con variación por hoja y algo de luz que las atraviesa
+          col = czm_srgbToLinear(c.rgb) * (0.75 + 0.5 * rn(floor(vRP.xz * 18.0) + vRP.y * 11.0));
+          rough = 0.6;
+          spec = vec3(0.06);
+          material.diffuse = col * mix(1.0, 0.35, uNight);
+          material.roughness = rough;
+          material.specular = spec;
+          material.emissive = col * 0.28 * (1.0 - uNight);
+          return;
         } else {
           col = vec3(0.52, 0.50, 0.47) * (0.92 + 0.14 * rn(vRP.xz * 1.5 + vRP.y)); // columnas, escaleras y vigas: concreto
         }

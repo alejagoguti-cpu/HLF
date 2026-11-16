@@ -305,6 +305,20 @@ let hotelAnim: { start: number } | null = null;
 let revit: RevitHotel | null = null;
 let pisosPanel: { show(v: boolean): void; mark(i: number): void } | null = null;
 let revitPending = false;
+let autoPlayed = false;
+/** Al levantarse el telón de carga: la cámara llega al hotel y el modelo de Revit se arma piso por piso. */
+async function autoPlayHotel(): Promise<void> {
+  if (autoPlayed) return;
+  autoPlayed = true;
+  await initRevit();
+  if (!site || !revit) return;
+  stopOrbit();
+  const c = revit.caja;
+  cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), heading: 0.55, pitch: -0.4, range: 230 }, 0.01);
+  const h = site.buildings.find((x) => x.s === 'Hotel');
+  if (h) select(h);
+  else playRevit();
+}
 let revitLoading: Promise<void> | null = null;
 /** Carga el modelo de Revit por niveles (una sola vez) y arma su panel de pisos. */
 function initRevit(): Promise<void> {
@@ -383,7 +397,8 @@ function select(b: Building | null): void {
       if (highlight) { viewer.entities.remove(highlight); highlight = null; }
     } else { revitPending = true; void initRevit(); playHotel(); }
     stopOrbit();
-    cam.flyTo({ pivot: placeWorld('hotel'), pitch: -0.38, range: 290 }, 1.8);
+    const cj = revit?.caja;
+    cam.flyTo(cj ? { pivot: enuToWorld((cj[0] + cj[2]) / 2, (cj[1] + cj[3]) / 2, 12), heading: 0.55, pitch: -0.4, range: 230 } : { pivot: placeWorld('hotel'), pitch: -0.38, range: 290 }, 1.8);
   }
   const piezas = hotel && site ? site.buildings.filter((x) => x.s === 'Hotel') : [b];
   const areaDe = (x: Building) => Math.abs(x.r.reduce((s, p, i) => { const q = x.r[(i + 1) % x.r.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0) / 2);
@@ -469,6 +484,7 @@ async function boot(): Promise<void> {
 
   // Colocar la cámara en la vista inicial detrás del telón para que carguen las texturas y tiles exactos
   setView('general', 0);
+  { const c = [-248.4, 249.1, -178, 305.3]; cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), heading: 0.55, pitch: -0.4, range: 230 }, 0); }
 
   await site.done;
   progress('Cargando tráfico y parqueaderos...', 0.78);
@@ -481,6 +497,7 @@ async function boot(): Promise<void> {
   progress('Listo', 1);
 
   loadingEl.classList.add('done');
+  void autoPlayHotel();
   setTimeout(() => loadingEl.remove(), 900);
   const hint = $('hint');
   if (hint) setTimeout(() => hint.classList.add('fade'), 9000);

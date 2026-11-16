@@ -15,6 +15,24 @@
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { Glb } from './glb-writer.mjs';
+import { materas } from './materas.mjs';
+
+// ocupación de losas de todos los niveles (para saber qué lado de cada ventana es exterior)
+const LOSAS = [];
+for (let i = 1; i < 12; i++) { // sin el nivel 0: su placa cubre también el exterior
+  const f = `build/revit/nivel_${i}.json`;
+  if (!existsSync(f)) continue;
+  const L = JSON.parse(readFileSync(f, 'utf8')).cats.losas;
+  if (!L) continue;
+  for (let t = 0; t < L.T.length; t += 3) {
+    const q = [0, 1, 2].map((k) => [L.V[L.T[t + k] * 3], L.V[L.T[t + k] * 3 + 1]]);
+    // muestrea el triángulo cada 0,4 m
+    const e1 = [q[1][0] - q[0][0], q[1][1] - q[0][1]], e2 = [q[2][0] - q[0][0], q[2][1] - q[0][1]];
+    const steps = Math.min(400, Math.ceil(Math.max(Math.hypot(...e1), Math.hypot(...e2)) / 0.4));
+    for (let a = 0; a <= steps; a++) for (let b = 0; a + b <= steps; b++) LOSAS.push([q[0][0] + (e1[0] * a + e2[0] * b) / steps, q[0][1] + (e1[1] * a + e2[1] * b) / steps]);
+  }
+}
+let totalMaceteros = 0;
 
 const A = JSON.parse(readFileSync('build/revit/alineacion.json', 'utf8'));
 const TH = (A.th * Math.PI) / 180, CT = Math.cos(TH), ST = Math.sin(TH);
@@ -35,6 +53,16 @@ for (let i = 0; i < 12; i++) {
   const d = JSON.parse(readFileSync(f, 'utf8'));
   const P = [], N = [], C = [], I = [];
   let n = 0, zmin = 1e9, zmax = -1e9;
+  if (i === 0) delete d.cats.losas; // el primer piso no lleva la placa de contrapiso
+  // materas con vegetación bajo cada ventana (código 240 = barro, 250-252 = hojas)
+  if (d.cats.ventanas) {
+    const mt = materas(d.cats.ventanas.V, LOSAS, d.cats.ventanas.T);
+    totalMaceteros += mt.cuenta;
+    if (mt.P.length) {
+      const T = Array.from({ length: mt.P.length / 3 }, (_, k) => k);
+      d.cats.__materas = { V: mt.P, T, codes: mt.C };
+    }
+  }
   for (const [cat, m] of Object.entries(d.cats)) {
     const [rgb, code] = MAT[cat] ?? [[160, 160, 160], 230];
     const base = n;
@@ -61,7 +89,11 @@ for (let i = 0; i < 12; i++) {
       const l = Math.hypot(nor[k * 3], nor[k * 3 + 1], nor[k * 3 + 2]) || 1;
       P.push(pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2]);
       N.push(nor[k * 3] / l, nor[k * 3 + 1] / l, nor[k * 3 + 2] / l);
-      C.push(rgb[0], rgb[1], rgb[2], code);
+      if (m.codes) {
+        const cc = m.codes[k];
+        const col = cc === 240 ? [150, 78, 52] : cc === 250 ? [44, 70, 34] : cc === 251 ? [64, 98, 46] : [92, 128, 60];
+        C.push(col[0], col[1], col[2], cc);
+      } else C.push(rgb[0], rgb[1], rgb[2], code);
     }
     for (const t of m.T) I.push(base + t);
     n += nv;
@@ -87,4 +119,4 @@ for (let i = 0; i < 12; i++) {
 manifest.caja = box.map((v) => +v.toFixed(1));
 manifest.bloques = A.bloques ?? []; // este0, norte0, este1, norte1 (muros y losas)
 writeFileSync('public/secciones/revit.json', JSON.stringify(manifest));
-console.log('caja ENU', manifest.caja);
+console.log('caja ENU', manifest.caja, '· materas', totalMaceteros);

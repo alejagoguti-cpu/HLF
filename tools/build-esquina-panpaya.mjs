@@ -12,6 +12,7 @@ import { readFileSync, copyFileSync, mkdirSync } from 'node:fs';
 import { NodeIO } from '@gltf-transform/core';
 import { Glb } from './glb-writer.mjs';
 import { encodePng } from './pbr-textures.mjs';
+import { makeMeshBuilder } from './arch-3d.mjs';
 import { CONSTRUCTORES } from '../../.gemini/antigravity/scratch/vehiculos-colombia/vehiculos.js';
 
 // Leer malla de suelo_Andenes.glb / suelo_Terreno.glb para apoyar vehículos parqueados sobre el pavimento real
@@ -280,14 +281,16 @@ for (const b of BLDS) {
   const floors = Math.max(1, Math.round(b.h / 3.0));
   const flH = b.h / floors;
 
-  // Cubierta plana con pretil
+  const { addLocalBox, add3DWindowBay, add3DBayWindow } = makeMeshBuilder(mats);
+
+  // Cubierta plana con pretil 3D
   const flat = [];
   for (const p of ring) flat.push(p[0], p[1]);
   const tris = earcut(flat);
   const roofMat = (b.id === 171 || b.id === 164) ? 'ladrillo' : 'concreto';
   const mR = mats[roofMat], rBase = mR.n;
   for (const p of ring) {
-    mR.P.push(p[0], zTop + 0.12, -p[1]); mR.N.push(0, 1, 0); mR.UV.push(p[0] * 0.25, p[1] * 0.25); mR.n++;
+    mR.P.push(p[0], zTop, -p[1]); mR.N.push(0, 1, 0); mR.UV.push(p[0] * 0.25, p[1] * 0.25); mR.n++;
   }
   for (let i = 0; i < tris.length; i += 3) mR.I.push(rBase + tris[i], rBase + tris[i + 1], rBase + tris[i + 2]);
 
@@ -304,49 +307,51 @@ for (const b of BLDS) {
     const ux = dx / L, uy = dy / L, nx = uy, ny = -ux;
     const pt = (s, off, z) => [p0[0] + ux * s + nx * off, p0[1] + uy * s + ny * off, z];
 
-    const wallMat = style === 'ladrillo' ? 'ladrillo' : style === 'fachaleta' ? 'fachaleta' : 'concreto';
-    addQuad(wallMat, pt(0, 0.10, zBase), pt(L, 0.10, zBase), pt(L, 0.10, zTop), pt(0, 0.10, zTop),
-      [0, 0], [L * 0.35, 0], [L * 0.35, b.h * 0.35], [0, b.h * 0.35]);
-
     if (style === 'comercial') {
-      // Vitrina acristalada en planta baja
-      const bays = Math.max(1, Math.floor((L - 1.5) / 3.8));
-      const bw = (L - 1.5) / bays;
+      const bays = Math.max(1, Math.floor(L / 4.0));
+      const bw = L / bays;
       for (let k = 0; k < bays; k++) {
-        const s0 = 0.75 + k * bw + 0.25, s1 = 0.75 + (k + 1) * bw - 0.25;
-        addQuad('oscuro', pt(s0 - 0.06, 0.15, zBase + 0.2), pt(s1 + 0.06, 0.15, zBase + 0.2), pt(s1 + 0.06, 0.15, zBase + 2.3), pt(s0 - 0.06, 0.15, zBase + 2.3));
-        addQuad('vidrio', pt(s0, 0.19, zBase + 0.28), pt(s1, 0.19, zBase + 0.28), pt(s1, 0.19, zBase + 2.22), pt(s0, 0.19, zBase + 2.22), [0, 0], [2, 0], [2, 1], [0, 1]);
+        add3DWindowBay('concreto', 'oscuro', 'vidrio', pt, k * bw, (k + 1) * bw, zBase, zTop, {
+          sillH: 0.35, headH: 0.85, pierW: 0.35, recess: -0.35, mullions: 2,
+        });
       }
+      addLocalBox('concreto', pt, 0, L, -0.25, 0.15, zTop - 0.15, zTop + 0.55, 0.35);
       continue;
     }
 
-    const bays = Math.max(1, Math.floor((L - 1.8) / 4.2));
-    const bw = (L - 1.8) / bays;
-    for (let fl = 0; fl < floors; fl++) {
-      const fz0 = zBase + fl * flH;
+    const wallMat = style === 'ladrillo' ? 'ladrillo' : style === 'fachaleta' ? 'fachaleta' : 'concreto';
+    // Zócalo inferior
+    addQuad(wallMat, pt(0, 0, zBase), pt(L, 0, zBase), pt(L, 0, zBase + flH), pt(0, 0, zBase + flH), [0, 0], [L * 0.35, 0], [L * 0.35, flH * 0.35], [0, flH * 0.35]);
+
+    const bays = Math.max(1, Math.floor(L / 4.2));
+    const bw = L / bays;
+    for (let fl = 1; fl < floors; fl++) {
+      const fz0 = zBase + fl * flH, fz1 = fz0 + flH;
       if (style === 'fachaleta') {
-        // Marcos horizontales oscuros entrelazados (foto 12754 Ak 15)
-        addQuad('oscuro', pt(0, 0.28, fz0), pt(L, 0.28, fz0), pt(L, 0.28, fz0 + 0.42), pt(0, 0.28, fz0 + 0.42));
+        // Losas y marcos oscuros entrelazados salientes (+0.48 m, foto 12754 Ak 15)
+        addLocalBox('oscuro', pt, 0, L, -0.4, 0.48, fz0, fz0 + 0.38, 0.35);
       }
       for (let k = 0; k < bays; k++) {
-        const s0 = 0.9 + k * bw + 0.30, s1 = 0.9 + (k + 1) * bw - 0.30;
-        if (s1 - s0 < 1.0) continue;
+        const s0 = k * bw, s1 = (k + 1) * bw;
         if (style === 'ladrillo' && k % 2 === 0 && L > 8) {
-          // Ventana trapezoidal en voladizo (bay window, foto 12746 Ak 15)
-          const sm = (s0 + s1) * 0.5, hw = (s1 - s0) * 0.35;
-          addQuad('vidrio', pt(s0, 0.16, fz0 + 0.7), pt(sm - hw, 0.65, fz0 + 0.7), pt(sm - hw, 0.65, fz0 + flH - 0.3), pt(s0, 0.16, fz0 + flH - 0.3));
-          addQuad('vidrio', pt(sm - hw, 0.65, fz0 + 0.7), pt(sm + hw, 0.65, fz0 + 0.7), pt(sm + hw, 0.65, fz0 + flH - 0.3), pt(sm - hw, 0.65, fz0 + flH - 0.3), [0, 0], [2, 0], [2, 1], [0, 1]);
-          addQuad('vidrio', pt(sm + hw, 0.65, fz0 + 0.7), pt(s1, 0.16, fz0 + 0.7), pt(s1, 0.16, fz0 + flH - 0.3), pt(sm + hw, 0.65, fz0 + flH - 0.3));
+          add3DBayWindow('ladrillo', 'oscuro', 'vidrio', pt, s0, s1, fz0, fz1, 0.35);
+        } else if (style === 'ladrillo' && k % 2 === 1 && L > 8) {
+          add3DWindowBay('ladrillo', 'oscuro', 'vidrio', pt, s0, s1, fz0, fz1, {
+            sillH: 0.25, headH: 0.30, pierW: 0.38, recess: -0.65, balcony: true, balconyDepth: 0.90, slabMat: 'ladrillo', mullions: 2,
+          });
+        } else if (style === 'fachaleta') {
+          add3DWindowBay('fachaleta', 'oscuro', 'vidrio', pt, s0, s1, fz0 + 0.38, fz1, {
+            sillH: 0.15, headH: 0.20, pierW: 0.45, recess: -0.75, balcony: k % 2 === 1, balconyDepth: 0.48, slabMat: 'oscuro', mullions: 3,
+          });
         } else {
-          addQuad('oscuro', pt(s0 - 0.06, 0.16, fz0 + 0.75), pt(s1 + 0.06, 0.16, fz0 + 0.75), pt(s1 + 0.06, 0.16, fz0 + flH - 0.32), pt(s0 - 0.06, 0.16, fz0 + flH - 0.32));
-          addQuad('vidrio', pt(s0, 0.21, fz0 + 0.82), pt(s1, 0.21, fz0 + 0.82), pt(s1, 0.21, fz0 + flH - 0.38), pt(s0, 0.21, fz0 + flH - 0.38), [0, 0], [2, 0], [2, 1], [0, 1]);
-          if (style === 'fachaleta' && k % 2 === 1) {
-            // Baranda de vidrio en balcones
-            addQuad('vidrio', pt(s0, 0.45, fz0 + 0.42), pt(s1, 0.45, fz0 + 0.42), pt(s1, 0.45, fz0 + 1.25), pt(s0, 0.45, fz0 + 1.25));
-          }
+          add3DWindowBay(wallMat, 'oscuro', 'vidrio', pt, s0, s1, fz0, fz1, {
+            sillH: 0.80, headH: 0.32, pierW: 0.38, recess: -0.45, mullions: 2,
+          });
         }
       }
     }
+    // Pretil 3D superior
+    addLocalBox(style === 'fachaleta' ? 'oscuro' : wallMat, pt, 0, L, -0.30, 0.25, zTop - 0.15, zTop + 0.75, 0.35);
   }
 }
 

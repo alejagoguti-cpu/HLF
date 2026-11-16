@@ -51,6 +51,7 @@ const bajoTeja = (x, y) => {
   return false;
 };
 const secs = new Map();
+const CUSTOM_IDS = new Set([7,8,9,10,11,12,14,15,50,51,54,94,96, 162,164,165,171,175,176,181,358,365,373,374,680,692,1076,1364,1375,2269,2319,2333]);
 const index = [];
 let id = 0;
 let omitidos = 0;
@@ -83,28 +84,30 @@ for (const e of E) {
     return m.n++;
   };
 
-  for (const ring of rings) {
-    for (let k = 0; k < ring.length; k++) {
-      const [x0, y0] = ring[k], [x1, y1] = ring[(k + 1) % ring.length];
-      const L = Math.hypot(x1 - x0, y1 - y0);
-      if (L < 0.05) continue;
-      const nx = (y1 - y0) / L, ny = -(x1 - x0) / L;
-      const nb = L < 1.8 ? 0 : Math.max(1, Math.round(L / BAY));
-      const vb = -SKIRT / fh, vt = (e.h + parapet) / fh;
-      const a = vert(x0, y0, z0 - SKIRT, nx, ny, 0, 0, vb, WALL);
-      const b = vert(x1, y1, z0 - SKIRT, nx, ny, 0, nb, vb, WALL);
-      const c = vert(x1, y1, z1 + parapet, nx, ny, 0, nb, vt, WALL);
-      const d = vert(x0, y0, z1 + parapet, nx, ny, 0, 0, vt, WALL);
-      m.I.push(a, b, c, a, c, d);
+  if (!CUSTOM_IDS.has(id)) {
+    for (const ring of rings) {
+      for (let k = 0; k < ring.length; k++) {
+        const [x0, y0] = ring[k], [x1, y1] = ring[(k + 1) % ring.length];
+        const L = Math.hypot(x1 - x0, y1 - y0);
+        if (L < 0.05) continue;
+        const nx = (y1 - y0) / L, ny = -(x1 - x0) / L;
+        const nb = L < 1.8 ? 0 : Math.max(1, Math.round(L / BAY));
+        const vb = -SKIRT / fh, vt = (e.h + parapet) / fh;
+        const a = vert(x0, y0, z0 - SKIRT, nx, ny, 0, 0, vb, WALL);
+        const b = vert(x1, y1, z0 - SKIRT, nx, ny, 0, nb, vb, WALL);
+        const c = vert(x1, y1, z1 + parapet, nx, ny, 0, nb, vt, WALL);
+        const d = vert(x0, y0, z1 + parapet, nx, ny, 0, 0, vt, WALL);
+        m.I.push(a, b, c, a, c, d);
+      }
     }
-  }
 
-  const flat = [], holes = [];
-  rings.forEach((r, i) => { if (i) holes.push(flat.length / 2); for (const p of r) flat.push(p[0], p[1]); });
-  const tris = earcut(flat, holes, 2);
-  const base = m.n;
-  for (let i = 0; i < flat.length; i += 2) vert(flat[i], flat[i + 1], z1, 0, 0, 1, flat[i], flat[i + 1], esHotel ? 236 : 255);
-  for (let i = 0; i < tris.length; i += 3) m.I.push(base + tris[i], base + tris[i + 1], base + tris[i + 2]);
+    const flat = [], holes = [];
+    rings.forEach((r, i) => { if (i) holes.push(flat.length / 2); for (const p of r) flat.push(p[0], p[1]); });
+    const tris = earcut(flat, holes, 2);
+    const base = m.n;
+    for (let i = 0; i < flat.length; i += 2) vert(flat[i], flat[i + 1], z1, 0, 0, 1, flat[i], flat[i + 1], esHotel ? 236 : 255);
+    for (let i = 0; i < tris.length; i += 3) m.I.push(base + tris[i], base + tris[i + 1], base + tris[i + 2]);
+  }
 
   const ext = rings[0];
   let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;

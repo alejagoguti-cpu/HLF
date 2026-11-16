@@ -12,6 +12,7 @@ import earcut from 'earcut';
 import { readFileSync, copyFileSync, mkdirSync } from 'node:fs';
 import { Glb } from './glb-writer.mjs';
 import { encodePng } from './pbr-textures.mjs';
+import { makeMeshBuilder } from './arch-3d.mjs';
 
 const DATA = JSON.parse(readFileSync('public/secciones/edificios.json', 'utf8'));
 const TARGET_IDS = new Set([7, 8, 9, 10, 11, 12, 14, 15, 50, 51, 54, 94, 96]);
@@ -126,32 +127,7 @@ const mats = {
   metal: mkMat('MarcoAluminioPBR', tMetBase, tMetNorm, tMetMr, [1, 1, 1, 1], 1.0),
 };
 
-function addQuad(mat, a, b, c, d, uva = [0, 0], uvb = [1, 0], uvc = [1, 1], uvd = [0, 1]) {
-  const m = mats[mat];
-  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
-  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
-  let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-  const L = Math.hypot(nx, ny, nz) || 1;
-  nx /= L; ny /= L; nz /= L;
-  const base = m.n;
-  const pts = [a, b, c, d], uvs = [uva, uvb, uvc, uvd];
-  for (let i = 0; i < 4; i++) {
-    m.P.push(pts[i][0], pts[i][2], -pts[i][1]);
-    m.N.push(nx, nz, -ny);
-    m.UV.push(uvs[i][0], uvs[i][1]);
-    m.n++;
-  }
-  m.I.push(base, base + 1, base + 2, base, base + 2, base + 3);
-}
-
-function addBox(mat, e0, n0, z0, e1, n1, z1, uvScale = 0.25) {
-  const w = Math.abs(e1 - e0) * uvScale, d = Math.abs(n1 - n0) * uvScale, h = Math.abs(z1 - z0) * uvScale;
-  addQuad(mat, [e0, n0, z1], [e1, n0, z1], [e1, n1, z1], [e0, n1, z1], [0, 0], [w, 0], [w, d], [0, d]);
-  addQuad(mat, [e0, n0, z0], [e1, n0, z0], [e1, n0, z1], [e0, n0, z1], [0, 0], [w, 0], [w, h], [0, h]);
-  addQuad(mat, [e1, n0, z0], [e1, n1, z0], [e1, n1, z1], [e1, n0, z1], [0, 0], [d, 0], [d, h], [0, h]);
-  addQuad(mat, [e1, n1, z0], [e0, n1, z0], [e0, n1, z1], [e1, n1, z1], [0, 0], [w, 0], [w, h], [0, h]);
-  addQuad(mat, [e0, n1, z0], [e0, n0, z0], [e0, n0, z1], [e0, n1, z1], [0, 0], [d, 0], [d, h], [0, h]);
-}
+const { addQuad, addBox, addLocalBox, add3DWindowBay } = makeMeshBuilder(mats);
 
 const area = (r) => {
   let a = 0;
@@ -167,83 +143,81 @@ for (const b of TOWERS) {
   const floors = Math.max(1, Math.round(b.h / 3.0));
   const flH = b.h / floors;
 
-  // Techo plano en concreto arquitectónico
+  // Techo plano en concreto arquitectónico (remetido bajo el pretil)
   const flat = [];
   for (const p of ring) flat.push(p[0], p[1]);
   const tris = earcut(flat);
   const mCon = mats.concreto;
   const cBase = mCon.n;
   for (const p of ring) {
-    mCon.P.push(p[0], zTop + 0.12, -p[1]);
+    mCon.P.push(p[0], zTop, -p[1]);
     mCon.N.push(0, 1, 0);
     mCon.UV.push(p[0] * 0.25, p[1] * 0.25);
     mCon.n++;
   }
   for (let i = 0; i < tris.length; i += 3) mCon.I.push(cBase + tris[i], cBase + tris[i + 1], cBase + tris[i + 2]);
 
-  // Fachadas por arista con ritmo real ladrillo + concreto gris + ventanales PBR + balcones 3D
   for (let eIdx = 0; eIdx < ring.length; eIdx++) {
     const p0 = ring[eIdx], p1 = ring[(eIdx + 1) % ring.length];
     const dx = p1[0] - p0[0], dy = p1[1] - p0[1];
     const L = Math.hypot(dx, dy);
     if (L < 0.8) continue;
     const ux = dx / L, uy = dy / L;
-    const nx = uy, ny = -ux; // normal exterior
+    const nx = uy, ny = -ux;
     const pt = (s, off, z) => [p0[0] + ux * s + nx * off, p0[1] + uy * s + ny * off, z];
 
-    // Muro base envolvente (+0.10 m hacia afuera para evitar Z-fighting)
     const wallMat = L > 12 ? 'ladrillo' : (eIdx % 2 === 0 ? 'concreto' : 'ladrillo');
-    addQuad(wallMat, pt(0, 0.10, zBase), pt(L, 0.10, zBase), pt(L, 0.10, zTop), pt(0, 0.10, zTop),
-      [0, 0], [L * 0.35, 0], [L * 0.35, b.h * 0.35], [0, b.h * 0.35]);
+    // Zócalo inferior en ladrillo (planta baja)
+    addQuad('ladrillo', pt(0, 0, zBase), pt(L, 0, zBase), pt(L, 0, zBase + flH), pt(0, 0, zBase + flH), [0, 0], [L * 0.35, 0], [L * 0.35, flH * 0.35], [0, flH * 0.35]);
 
-    // Pilastras laterales en concreto gris en los bordes de las fachadas principales
-    if (L >= 6.5) {
-      addQuad('concreto', pt(0, 0.20, zBase), pt(0.95, 0.20, zBase), pt(0.95, 0.20, zTop), pt(0, 0.20, zTop), [0, 0], [0.3, 0], [0.3, b.h * 0.3], [0, b.h * 0.3]);
-      addQuad('concreto', pt(L - 0.95, 0.20, zBase), pt(L, 0.20, zBase), pt(L, 0.20, zTop), pt(L - 0.95, 0.20, zTop), [0, 0], [0.3, 0], [0.3, b.h * 0.3], [0, b.h * 0.3]);
+    // Pilastras laterales 3D salientes en concreto gris (+0.22 m)
+    const pW = L >= 6.5 ? 0.90 : 0.0;
+    if (pW > 0) {
+      addLocalBox('concreto', pt, 0, pW, -0.35, 0.22, zBase, zTop + 0.75, 0.35);
+      addLocalBox('concreto', pt, L - pW, L, -0.35, 0.22, zBase, zTop + 0.75, 0.35);
     }
 
-    // Zócalo en ladrillo + rejillas negras en planta baja (fotos Street View)
-    addQuad('ladrillo', pt(0, 0.22, zBase), pt(L, 0.22, zBase), pt(L, 0.22, zBase + 1.8), pt(0, 0.22, zBase + 1.8), [0, 0], [L * 0.4, 0], [L * 0.4, 0.7], [0, 0.7]);
-
-    // Ventanales horizontales PBR y balcones 3D por piso
-    const bays = Math.max(1, Math.floor((L - 2.0) / 4.2));
-    const bayW = (L - 2.0) / bays;
+    // Pisos 1..N con vanos profundos 3D reales (-0.45 m) y balcones en voladizo
+    const innerL = L - 2 * pW;
+    const bays = Math.max(1, Math.floor(innerL / 4.2));
+    const bayW = innerL / bays;
     for (let fl = 1; fl < floors; fl++) {
       const fz0 = zBase + fl * flH;
+      const fz1 = fz0 + flH;
       for (let k = 0; k < bays; k++) {
-        const s0 = 1.0 + k * bayW + 0.35;
-        const s1 = 1.0 + (k + 1) * bayW - 0.35;
-        if (s1 - s0 < 1.2) continue;
-        // Marco metálico + vidrio reflectivo PBR
-        addQuad('metal', pt(s0 - 0.08, 0.16, fz0 + 0.85), pt(s1 + 0.08, 0.16, fz0 + 0.85), pt(s1 + 0.08, 0.16, fz0 + flH - 0.35), pt(s0 - 0.08, 0.16, fz0 + flH - 0.35), [0, 0], [1, 0], [1, 1], [0, 1]);
-        addQuad('vidrio', pt(s0, 0.20, fz0 + 0.92), pt(s1, 0.20, fz0 + 0.92), pt(s1, 0.20, fz0 + flH - 0.42), pt(s0, 0.20, fz0 + flH - 0.42), [0, 0], [2, 0], [2, 1], [0, 1]);
-
-        // Balcón 3D en voladizo en ejes alternos o fachadas principales
-        if ((k % 2 === 1 && L > 8.5) || (L < 10.5 && fl % 3 === 0)) {
-          const bOut = L < 10.5 ? 1.15 : 0.95;
-          // Losa de balcón en concreto
-          addQuad('concreto', pt(s0, 0.12, fz0 + 0.18), pt(s1, 0.12, fz0 + 0.18), pt(s1, bOut, fz0 + 0.18), pt(s0, bOut, fz0 + 0.18), [0, 0], [1, 0], [1, 0.4], [0, 0.4]);
-          addQuad('concreto', pt(s0, bOut, fz0), pt(s1, bOut, fz0), pt(s1, bOut, fz0 + 0.22), pt(s0, bOut, fz0 + 0.22), [0, 0], [1, 0], [1, 0.1], [0, 0.1]);
-          // Baranda metálica/vidrio
-          addQuad('metal', pt(s0, bOut - 0.03, fz0 + 0.98), pt(s1, bOut - 0.03, fz0 + 0.98), pt(s1, bOut - 0.03, fz0 + 1.05), pt(s0, bOut - 0.03, fz0 + 1.05), [0, 0], [1, 0], [1, 0.1], [0, 0.1]);
-          addQuad('vidrio', pt(s0, bOut - 0.04, fz0 + 0.22), pt(s1, bOut - 0.04, fz0 + 0.22), pt(s1, bOut - 0.04, fz0 + 0.98), pt(s0, bOut - 0.04, fz0 + 0.98), [0, 0], [2, 0], [2, 0.5], [0, 0.5]);
-        }
+        const s0 = pW + k * bayW;
+        const s1 = pW + (k + 1) * bayW;
+        const hasBalc = (k % 2 === 1 && L > 8.5) || (L < 10.5 && fl % 3 === 0);
+        add3DWindowBay(wallMat, 'metal', 'vidrio', pt, s0, s1, fz0, fz1, {
+          sillH: hasBalc ? 0.22 : 0.85,
+          headH: 0.32,
+          pierW: 0.38,
+          recess: -0.45,
+          balcony: hasBalc,
+          balconyDepth: L < 10.5 ? 1.15 : 0.95,
+          slabMat: 'concreto',
+          mullions: 2,
+        });
       }
     }
 
-    // Remate superior de concreto
-    addQuad('concreto', pt(0, 0.24, zTop - 0.45), pt(L, 0.24, zTop - 0.45), pt(L, 0.24, zTop + 0.25), pt(0, 0.24, zTop + 0.25), [0, 0], [L * 0.3, 0], [L * 0.3, 0.3], [0, 0.3]);
+    // Pretil 3D de cubierta (+0.75 m)
+    addLocalBox('concreto', pt, pW, L - pW, -0.30, 0.24, zTop - 0.15, zTop + 0.75, 0.35);
   }
 }
 
-// Pérgolas superiores en concreto conectando las 4 parejas de torres gemelas sobre Calle 127 (7-8, 9-10, 11-12, 14-15)
+// Pérgolas superiores caladas en concreto conectando las 4 parejas de torres gemelas sobre Calle 127
 for (const [e0, e1, nMid, zP] of [
   [-337, -322, 295.0, 45.4],
   [-353, -341, 297.0, 45.3],
   [-367, -355, 298.8, 45.1],
   [-385, -370, 300.7, 45.0],
 ]) {
-  addBox('concreto', e0, nMid - 1.4, zP, e1, nMid + 1.4, zP + 0.55, 0.35);
+  addBox('concreto', e0, nMid - 1.4, zP, e1, nMid - 0.9, zP + 0.65, 0.35);
+  addBox('concreto', e0, nMid + 0.9, zP, e1, nMid + 1.4, zP + 0.65, 0.35);
+  for (let bx = e0 + 1.0; bx < e1 - 0.5; bx += 1.8) {
+    addBox('concreto', bx, nMid - 1.2, zP + 0.1, bx + 0.45, nMid + 1.2, zP + 0.55, 0.35);
+  }
 }
 
 const prims = [];

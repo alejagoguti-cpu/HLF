@@ -13,6 +13,7 @@ import earcut from 'earcut';
 import { readFileSync, copyFileSync, mkdirSync } from 'node:fs';
 import { Glb } from './glb-writer.mjs';
 import { encodePng } from './pbr-textures.mjs';
+import { makeMeshBuilder } from './arch-3d.mjs';
 
 const DATA = JSON.parse(readFileSync('public/secciones/edificios.json', 'utf8'));
 const IDS = new Set([373, 175, 176, 181, 680, 692, 374, 1076, 2319, 2333]);
@@ -181,21 +182,9 @@ const mats = {
   verde: { P: [], N: [], UV: [], I: [], n: 0, def: { name: 'SetoMetro', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.15, 0.32, 0.12, 1], metallicFactor: 0.0, roughnessFactor: 0.86 } } },
 };
 
+const { addQuad: addQ, addLocalBox, add3DWindowBay } = makeMeshBuilder(mats);
 function addQuad(mat, a, b, c, d, uva = [0, 0], uvb = [1, 0], uvc = [1, 1], uvd = [0, 1]) {
-  const m = mats[mat];
-  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
-  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
-  let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-  const L = Math.hypot(nx, ny, nz) || 1; nx /= L; ny /= L; nz /= L;
-  const base = m.n;
-  const pts = [a, b, c, d], uvs = [uva, uvb, uvc, uvd];
-  for (let i = 0; i < 4; i++) {
-    m.P.push(pts[i][0], pts[i][2], -pts[i][1]);
-    m.N.push(nx, nz, -ny);
-    m.UV.push(uvs[i][0], uvs[i][1]);
-    m.n++;
-  }
-  m.I.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  addQ(mat, a, b, c, d, uva, uvb, uvc, uvd);
 }
 
 const area = (r) => {
@@ -235,32 +224,69 @@ for (const b of BLDS) {
       continue;
     }
 
-    // Zócalo negro en planta baja (0..4.2 m)
+    // Zócalo negro en planta baja con vitrinas 3D remetidas
     const zSock = Math.min(zTop, zBase + 4.2);
-    addQuad('negro', pt(0, 0.14, zBase), pt(L, 0.14, zBase), pt(L, 0.14, zSock), pt(0, 0.14, zSock), [0, 0], [L * 0.25, 0], [L * 0.25, 1], [0, 1]);
-    addQuad('vidrio', pt(0.5, 0.18, zBase + 0.4), pt(L - 0.5, 0.18, zBase + 0.4), pt(L - 0.5, 0.18, zSock - 0.4), pt(0.5, 0.18, zSock - 0.4), [0, 0], [L * 0.3, 0], [L * 0.3, 1], [0, 1]);
+    const sockBays = Math.max(1, Math.floor(L / 4.5));
+    const sbw = L / sockBays;
+    for (let k = 0; k < sockBays; k++) {
+      add3DWindowBay('negro', 'negro', 'vidrio', pt, k * sbw, (k + 1) * sbw, zBase, zSock, {
+        sillH: 0.25, headH: 0.55, pierW: 0.35, recess: -0.40, mullions: 2,
+      });
+    }
 
     if (b.h > 5) {
-      // Tercios arquitectónicos de Metro 127: vidrio cortina central + celosía o ajedrez
+      const floors = Math.max(1, Math.round((zTop - zSock) / 3.0));
+      const flH = (zTop - zSock) / floors;
       if (L >= 18) {
         const sA = L * 0.30, sB = L * 0.65;
-        addQuad('ajedrez', pt(0, 0.12, zSock), pt(sA, 0.12, zSock), pt(sA, 0.12, zTop), pt(0, 0.12, zTop), [0, 0], [sA * 0.12, 0], [sA * 0.12, (zTop - zSock) * 0.12], [0, (zTop - zSock) * 0.12]);
-        addQuad('vidrio', pt(sA, 0.10, zSock), pt(sB, 0.10, zSock), pt(sB, 0.10, zTop), pt(sA, 0.10, zTop), [0, 0], [(sB - sA) * 0.25, 0], [(sB - sA) * 0.25, (zTop - zSock) * 0.25], [0, (zTop - zSock) * 0.25]);
-        addQuad('celosia', pt(sB, 0.16, zSock), pt(L, 0.16, zSock), pt(L, 0.16, zTop), pt(sB, 0.16, zTop), [0, 0], [(L - sB) * 0.2, 0], [(L - sB) * 0.2, (zTop - zSock) * 0.25], [0, (zTop - zSock) * 0.25]);
-        // Valla central sobre el muro cortina
+        // Tercios: (1) ajedrez 3D remetido, (2) muro cortina 3D con parteluces, (3) celosía metálica 3D real
+        const aBays = Math.max(1, Math.floor(sA / 3.2)), aW = sA / aBays;
+        for (let fl = 0; fl < floors; fl++) {
+          const fz0 = zSock + fl * flH, fz1 = fz0 + flH;
+          for (let k = 0; k < aBays; k++) {
+            add3DWindowBay('blanco', 'negro', 'vidrio', pt, k * aW, (k + 1) * aW, fz0, fz1, {
+              sillH: 0.80, headH: 0.35, pierW: 0.50, recess: -0.40, mullions: 1,
+            });
+          }
+          // Lamas horizontales 3D de celosía sobre vidrio remetido
+          addQuad('vidrio', pt(sB, -0.35, fz0), pt(L, -0.35, fz0), pt(L, -0.35, fz1), pt(sB, -0.35, fz1), [0, 0], [(L - sB) * 0.25, 0], [(L - sB) * 0.25, 1], [0, 1]);
+          for (let sl = 0.25; sl < flH - 0.1; sl += 0.45) {
+            addLocalBox('celosia', pt, sB, L, 0.0, 0.22, fz0 + sl, fz0 + sl + 0.08, 0.3);
+          }
+        }
+        // Muro cortina central remetido con parteluces 3D verticales
+        addQuad('vidrio', pt(sA, -0.45, zSock), pt(sB, -0.45, zSock), pt(sB, -0.45, zTop), pt(sA, -0.45, zTop), [0, 0], [(sB - sA) * 0.25, 0], [(sB - sA) * 0.25, (zTop - zSock) * 0.25], [0, (zTop - zSock) * 0.25]);
+        for (let mx = sA; mx <= sB + 0.01; mx += 2.2) {
+          addLocalBox('blanco', pt, mx - 0.06, mx + 0.06, -0.45, -0.25, zSock, zTop, 0.3);
+        }
         const vm = (sA + sB) * 0.5;
-        addQuad('signPrime', pt(vm - 3.5, 0.22, zSock + 3.0), pt(vm + 3.5, 0.22, zSock + 3.0), pt(vm + 3.5, 0.22, zTop - 2.5), pt(vm - 3.5, 0.22, zTop - 2.5), [0, 1], [1, 1], [1, 0], [0, 0]);
+        addQuad('signPrime', pt(vm - 3.5, -0.15, zSock + 3.0), pt(vm + 3.5, -0.15, zSock + 3.0), pt(vm + 3.5, -0.15, zTop - 2.5), pt(vm - 3.5, -0.15, zTop - 2.5), [0, 1], [1, 1], [1, 0], [0, 0]);
       } else {
-        const matBody = (b.id === 175 || b.id === 680) ? 'celosia' : 'ajedrez';
-        addQuad(matBody, pt(0, 0.12, zSock), pt(L, 0.12, zSock), pt(L, 0.12, zTop), pt(0, 0.12, zTop), [0, 0], [L * 0.18, 0], [L * 0.18, (zTop - zSock) * 0.18], [0, (zTop - zSock) * 0.18]);
+        const useCel = (b.id === 175 || b.id === 680);
+        const wBays = Math.max(1, Math.floor(L / 3.4)), wW = L / wBays;
+        for (let fl = 0; fl < floors; fl++) {
+          const fz0 = zSock + fl * flH, fz1 = fz0 + flH;
+          if (useCel) {
+            addQuad('vidrio', pt(0, -0.35, fz0), pt(L, -0.35, fz0), pt(L, -0.35, fz1), pt(0, -0.35, fz1), [0, 0], [L * 0.25, 0], [L * 0.25, 1], [0, 1]);
+            for (let sl = 0.25; sl < flH - 0.1; sl += 0.45) {
+              addLocalBox('celosia', pt, 0, L, 0.0, 0.22, fz0 + sl, fz0 + sl + 0.08, 0.3);
+            }
+          } else {
+            for (let k = 0; k < wBays; k++) {
+              add3DWindowBay('blanco', 'negro', 'vidrio', pt, k * wW, (k + 1) * wW, fz0, fz1, {
+                sillH: 0.80, headH: 0.35, pierW: 0.45, recess: -0.40, mullions: 1,
+              });
+            }
+          }
+        }
       }
-      // Cornisa superior blanca + letreros
-      addQuad('blanco', pt(0, 0.24, zTop - 0.9), pt(L, 0.24, zTop - 0.9), pt(L, 0.24, zTop + 0.3), pt(0, 0.24, zTop + 0.3), [0, 0], [L * 0.2, 0], [L * 0.2, 0.3], [0, 0.3]);
+      // Cornisa superior 3D blanca + letreros
+      addLocalBox('blanco', pt, 0, L, -0.30, 0.28, zTop - 0.8, zTop + 0.45, 0.3);
       if (b.id === 175 && L > 15 && ny > 0.5) {
-        addQuad('signMetro', pt(L * 0.15, 0.30, zTop - 0.8), pt(L * 0.55, 0.30, zTop - 0.8), pt(L * 0.55, 0.30, zTop + 0.8), pt(L * 0.15, 0.30, zTop + 0.8), [0, 1], [1, 1], [1, 0], [0, 0]);
+        addQuad('signMetro', pt(L * 0.15, 0.34, zTop - 0.7), pt(L * 0.55, 0.34, zTop - 0.7), pt(L * 0.55, 0.34, zTop + 0.7), pt(L * 0.15, 0.34, zTop + 0.7), [0, 1], [1, 1], [1, 0], [0, 0]);
       }
       if (b.id === 373 && L > 20 && nx > 0.5) {
-        addQuad('signSonesta', pt(L * 0.12, 0.30, zTop - 0.8), pt(L * 0.45, 0.30, zTop - 0.8), pt(L * 0.45, 0.30, zTop + 0.7), pt(L * 0.12, 0.30, zTop + 0.7), [0, 1], [1, 1], [1, 0], [0, 0]);
+        addQuad('signSonesta', pt(L * 0.12, 0.34, zTop - 0.7), pt(L * 0.45, 0.34, zTop - 0.7), pt(L * 0.45, 0.34, zTop + 0.65), pt(L * 0.12, 0.34, zTop + 0.65), [0, 1], [1, 1], [1, 0], [0, 0]);
       }
     }
   }

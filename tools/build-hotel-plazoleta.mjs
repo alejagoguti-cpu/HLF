@@ -287,38 +287,94 @@ for (const rad of [5.0, 7.2]) {
   }
 }
 
-// 2. ESCALERAS DE ACCESO PRINCIPAL (7 peldaños amplios en ladrillo PBR)
-const STEPS = 7, stairW = 17.5, tread = 0.44, riser = 0.14;
-for (let s = 0; s < STEPS; s++) {
-  const nFront = 270.0 + s * tread;
-  const zTop = ZP + (s + 1) * riser;
-  addBox('ladrillo', CX - stairW * 0.5, nFront, ZP, CX + stairW * 0.5, nFront + tread + 0.05, zTop, 0.45);
-}
-addBox('ladrillo', CX - stairW * 0.5, 270.0 + STEPS * tread, ZP, CX + stairW * 0.5, 276.5, ZP + STEPS * riser, 0.45);
+// 2. ESCALERAS Y DESCANSO DE ACCESO PRINCIPAL ENCUADRADAS A LA FACHADA
+// Fachada sur (arista 21 de edificios.json b=375): de [-241.31, 277.20] a [-207.33, 283.78]
+const pWall0 = [-241.31, 277.20], pWall1 = [-207.33, 283.78];
+const wallL = Math.hypot(pWall1[0] - pWall0[0], pWall1[1] - pWall0[1]); // 34.61 m
+const wtx = (pWall1[0] - pWall0[0]) / wallL; // 0.9818
+const wty = (pWall1[1] - pWall0[1]) / wallL; // 0.1901
+const wnx = wty; // 0.1901 (normal perpendicular saliente hacia la plazoleta)
+const wny = -wtx; // -0.9818
 
-// 3. ESTRUCTURA METÁLICA: MARQUESINA DE ACCESO + TENSORES + COLUMNAS + LUCES
-const zCan = ZP + STEPS * riser + 3.15;
-const canW = 14.8, canD = 3.6;
-const nCan0 = 270.4, nCan1 = nCan0 + canD;
-addBox('hierro', CX - canW * 0.5, nCan0, zCan, CX + canW * 0.5, nCan1, zCan + 0.34, 0.4);
-addBox('dorado', CX - 3.6, nCan0 - 0.03, zCan + 0.08, CX + 3.6, nCan0, zCan + 0.26, 0.5);
-for (let i = 0; i < 4; i++) {
-  const px = CX - canW * 0.42 + (i / 3) * (canW * 0.84);
-  addCylinder('hierro', px, nCan0 + 0.22, ZP + STEPS * riser, zCan, 0.11, 0.10, 12, 0.6, false);
-  addBeam('hierro', [px, nCan0 + 0.6, zCan + 0.34], [px, 276.2, zCan + 2.6], 0.045);
-  addCylinder('luzCalida', px, nCan0 + 0.38, zCan - 0.35, zCan - 0.05, 0.10, 0.14, 10, 0.5, true);
-}
-for (let lx = CX - canW * 0.46; lx <= CX + canW * 0.46; lx += 1.15) {
-  addBox('luzCalida', lx - 0.06, nCan0 - 0.02, zCan + 0.02, lx + 0.06, nCan0 + 0.08, zCan + 0.10);
+// Coordenadas orientadas con la fachada:
+// s: avance longitudinal a lo largo de la pared (m)
+// d: distancia hacia afuera perpendicular a la pared (m), d=0 es en la pared misma
+// z: altura
+const ptWall = (s, d, z) => [
+  pWall0[0] + wtx * s + wnx * d,
+  pWall0[1] + wty * s + wny * d,
+  z,
+];
+
+function addWallBox(mat, s0, s1, d0, d1, z0, z1, uvScale = 0.45) {
+  const p000 = ptWall(s0, d0, z0), p100 = ptWall(s1, d0, z0);
+  const p110 = ptWall(s1, d1, z0), p010 = ptWall(s0, d1, z0);
+  const p001 = ptWall(s0, d0, z1), p101 = ptWall(s1, d0, z1);
+  const p111 = ptWall(s1, d1, z1), p011 = ptWall(s0, d1, z1);
+  const w = Math.abs(s1 - s0) * uvScale;
+  const d = Math.abs(d1 - d0) * uvScale;
+  const h = Math.abs(z1 - z0) * uvScale;
+  // Superior (huella o descanso)
+  addQuad(mat, p001, p101, p111, p011, [0, 0], [w, 0], [w, d], [0, d]);
+  // Inferior
+  addQuad(mat, p010, p110, p100, p000, [0, 0], [w, 0], [w, d], [0, d]);
+  // Trasera (contra la fachada si d0=0)
+  addQuad(mat, p100, p000, p001, p101, [0, 0], [w, 0], [w, h], [0, h]);
+  // Frontal (contrahuella mirando a la plazoleta)
+  addQuad(mat, p010, p110, p111, p011, [0, 0], [w, 0], [w, h], [0, h]);
+  // Lateral oeste (izquierda)
+  addQuad(mat, p000, p010, p011, p001, [0, 0], [d, 0], [d, h], [0, h]);
+  // Lateral este (derecha)
+  addQuad(mat, p110, p100, p101, p111, [0, 0], [d, 0], [d, h], [0, h]);
 }
 
-// 4. CIPRESES PIRAMIDALES BOTÁNICOS FLANQUEANDO LAS ESCALERAS (3 izquierda, 3 derecha)
-for (const side of [-1, 1]) {
+// Centro de la entrada en la fachada: sCenter = 22.215 m (canopy s=14.88 a 29.55 m)
+const sCenter = 22.215;
+const stairW = 16.6;
+const s0 = sCenter - stairW * 0.5; // 13.915 m
+const s1 = sCenter + stairW * 0.5; // 30.515 m
+const STEPS = 7, tread = 0.44, riser = 0.14;
+const zTop = ZP + STEPS * riser; // 5.15 m
+const dLanding = 5.20; // 5.20 m de descanso bajo la marquesina
+
+// Descanso superior plano directamente pegado a la fachada (d0=0, sin huecos)
+addWallBox('ladrillo', s0, s1, 0.0, dLanding, ZP, zTop, 0.45);
+
+// 7 peldaños escalonados hacia la plazoleta en ladrillo PBR
+for (let k = 0; k < STEPS; k++) {
+  const dk0 = dLanding + k * tread;
+  const dk1 = dk0 + tread + 0.02;
+  const zkTop = zTop - k * riser;
+  addWallBox('ladrillo', s0, s1, dk0, dk1, ZP, zkTop, 0.45);
+}
+
+// Muretes laterales en ladrillo (guardaescobas / bordillo de confinamiento)
+const borderThick = 0.40;
+// Borde lateral izquierdo (oeste)
+addWallBox('ladrillo', s0 - borderThick, s0, 0.0, dLanding, ZP, zTop + 0.24, 0.45);
+for (let k = 0; k < STEPS; k++) {
+  const dk0 = dLanding + k * tread;
+  const dk1 = dk0 + tread + 0.02;
+  const zkTop = zTop - k * riser + 0.24;
+  addWallBox('ladrillo', s0 - borderThick, s0, dk0, dk1, ZP, zkTop, 0.45);
+}
+// Borde lateral derecho (este)
+addWallBox('ladrillo', s1, s1 + borderThick, 0.0, dLanding, ZP, zTop + 0.24, 0.45);
+for (let k = 0; k < STEPS; k++) {
+  const dk0 = dLanding + k * tread;
+  const dk1 = dk0 + tread + 0.02;
+  const zkTop = zTop - k * riser + 0.24;
+  addWallBox('ladrillo', s1, s1 + borderThick, dk0, dk1, ZP, zkTop, 0.45);
+}
+
+// 3. CIPRESES PIRAMIDALES BOTÁNICOS FLANQUEANDO LAS ESCALERAS ENCUADRADAS (3 izquierda, 3 derecha)
+for (const [sideSign, sSide] of [[-1, s0 - borderThick - 0.75], [1, s1 + borderThick + 0.75]]) {
   for (let k = 0; k < 3; k++) {
-    const tx = CX + side * (5.6 + k * 1.45);
-    const ty = 270.4 + k * 0.35;
-    const tz = ZP + 0.15;
-    addBox('ladrillo', tx - 0.34, ty - 0.34, tz, tx + 0.34, ty + 0.34, tz + 0.55, 0.6);
+    const dTree = 1.6 + k * 2.6; // d = 1.6, 4.2, 6.8 m
+    const pTree = ptWall(sSide, dTree, ZP);
+    const tx = pTree[0], ty = pTree[1], tz = ZP + 0.05;
+    // Matera cuadrada en ladrillo
+    addBox('ladrillo', tx - 0.38, ty - 0.38, tz, tx + 0.38, ty + 0.38, tz + 0.55, 0.6);
     addCylinder('hierro', tx, ty, tz + 0.55, tz + 2.9, 0.06, 0.02, 8, 0.5, false);
     const tiers = 10;
     for (let t = 0; t < tiers; t++) {
@@ -331,6 +387,48 @@ for (const side of [-1, 1]) {
       }
     }
   }
+}
+
+// 4. MARQUESINA DE ACCESO EN HIERRO NEGRO Y VIDRIO ENCUADRADA A LA FACHADA
+// Anclada a la fachada sin columnas invasivas en el suelo, suspendida con tensores de hierro negro
+const canW = 14.8;
+const sCan0 = sCenter - canW * 0.5; // 14.815 m
+const sCan1 = sCenter + canW * 0.5; // 29.615 m
+const dCan1 = 4.60;
+const zWallCan = 7.72, zFrontCan = 7.32; // pendiente ligera hacia el frente
+
+// Marco perimetral y vigas en hierro negro
+// Viga trasera adosada al muro de ladrillo
+addWallBox('hierro', sCan0 - 0.12, sCan1 + 0.12, 0.0, 0.18, zWallCan - 0.22, zWallCan, 0.4);
+// Viga frontal volada
+addWallBox('hierro', sCan0 - 0.12, sCan1 + 0.12, dCan1 - 0.18, dCan1, zFrontCan - 0.22, zFrontCan, 0.4);
+// Costados laterales
+addWallBox('hierro', sCan0 - 0.18, sCan0, 0.0, dCan1, zFrontCan - 0.22, zWallCan, 0.4);
+addWallBox('hierro', sCan1, sCan1 + 0.18, 0.0, dCan1, zFrontCan - 0.22, zWallCan, 0.4);
+
+// Viguetas transversales de hierro negro cada ~1.45 m
+const numRibs = 10;
+for (let i = 0; i <= numRibs; i++) {
+  const sRib = sCan0 + (i / numRibs) * (sCan1 - sCan0);
+  addWallBox('hierro', sRib - 0.045, sRib + 0.045, 0.0, dCan1, zFrontCan - 0.16, zWallCan - 0.04, 0.4);
+}
+
+// Cubierta acristalada inclinada con reflejos PBR
+const pV0 = ptWall(sCan0, 0.04, zWallCan - 0.03);
+const pV1 = ptWall(sCan1, 0.04, zWallCan - 0.03);
+const pV2 = ptWall(sCan1, dCan1 - 0.04, zFrontCan - 0.03);
+const pV3 = ptWall(sCan0, dCan1 - 0.04, zFrontCan - 0.03);
+addQuad('vidrioPabellon', pV0, pV1, pV2, pV3, [0, 0], [1, 0], [1, 1], [0, 1]);
+
+// 4 tensores / tirantes de hierro negro anclados arriba en la fachada
+for (const frac of [0.10, 0.37, 0.63, 0.90]) {
+  const sT = sCan0 + (sCan1 - sCan0) * frac;
+  const pExt = ptWall(sT, dCan1 - 0.12, zFrontCan - 0.04);
+  const pAnch = ptWall(sT, 0.04, zWallCan + 2.25);
+  addBeam('hierro', pExt, pAnch, 0.038);
+  // Focos cálidos empotrados bajo la marquesina
+  const pFoco = ptWall(sT, dCan1 * 0.5, zFrontCan - 0.22);
+  addCylinder('luzCalida', pFoco[0], pFoco[1], pFoco[2] - 0.12, pFoco[2] + 0.04, 0.12, 0.12, 10, 0.5, true);
 }
 
 // 5. REJA FRONTAL SIGUIENDO LA CARA INTERIOR EXACTA DEL ANDÉN (nFrontEdge, sin salirse jamás a la vía)

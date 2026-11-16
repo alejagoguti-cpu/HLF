@@ -64,6 +64,8 @@ export function facadeShader(): Cesium.CustomShader {
       uHazeStart: { type: Cesium.UniformType.FLOAT, value: 1200.0 },
       /** pisos del hotel ya apilados (animación al seleccionarlo); 99 = edificio completo */
       uHotelPisos: { type: Cesium.UniformType.FLOAT, value: 99 },
+      /** zona (este0, norte0, este1, norte1) donde el hotel lo dibuja el modelo de Revit: ahí se retira el volumen genérico */
+      uRevitBox: { type: Cesium.UniformType.VEC4, value: new Cesium.Cartesian4(0, 0, 0, 0) },
       /** desplazamiento de la foto por metro de altura (la foto aérea no es perfectamente cenital) */
       uLean: { type: Cesium.UniformType.VEC2, value: new Cesium.Cartesian2(0, 0) },
       ...AERIAL_UNIFORMS(),
@@ -109,6 +111,10 @@ export function facadeShader(): Cesium.CustomShader {
 
         // hotel en construcción: cubiertas y aleros solo cuando ya subieron todos los pisos
         if (uHotelPisos < 98.0 && tipo > 0.3 && tipo < 0.95) discard;
+        if (uRevitBox.z > uRevitBox.x && tipo > 0.06 && tipo < 0.95) {
+          vec2 enR = vec2(vPosM.x, -vPosM.z);
+          if (enR.x > uRevitBox.x && enR.x < uRevitBox.z && enR.y > uRevitBox.y && enR.y < uRevitBox.w) discard;
+        }
 
         if (tipo > 0.9) {
           /* ---------- cubierta plana: gris claro, como la losa real vista desde el aire ---------- */

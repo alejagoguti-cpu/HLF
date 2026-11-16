@@ -5,6 +5,7 @@ import { ASSETS, PLACES, VIEWS } from './config';
 import { ArchCamera } from './arch-camera';
 import { loadSite, enuToWorld, siteMatrix, type Site, type Building } from './site';
 import { createTrafico, type Trafico } from './vehiculos';
+import { loadRevitHotel, createPisosPanel, type RevitHotel } from './revit';
 import { gradeStage, skyStage } from './shaders';
 import { createLookStudio, hexToRgbNorm, type LookParams, type PresetId } from './look-studio';
 
@@ -202,6 +203,7 @@ function applyPreset(p: LightingPreset): void {
     currentNight = fromN + (p.night - fromN) * e;
     currentTarde = fromT + (p.tarde - fromT) * e;
     site?.setNight(currentNight);
+    revit?.setNight(currentNight);
     site?.setTarde(currentTarde);
     sky.uniforms.uNight = currentNight;
     sky.uniforms.uTarde = currentTarde;
@@ -285,6 +287,16 @@ let trafico: Trafico | null = null;
 /* Hotel La Fontana: al seleccionarlo se arma piso por piso */
 const HOTEL_PISOS = 9;
 let hotelAnim: { start: number } | null = null;
+/* modelo de Revit del hotel, por niveles */
+let revit: RevitHotel | null = null;
+let pisosPanel: { show(v: boolean): void; mark(i: number): void } | null = null;
+function playRevit(): void {
+  if (!site || !revit) return;
+  site.setRevitZone(revit.caja);
+  revit.play();
+  pisosPanel?.mark(-1);
+  pisosPanel?.show(true);
+}
 function playHotel(): void {
   if (!site) return;
   hotelAnim = { start: performance.now() };
@@ -305,7 +317,9 @@ function select(b: Building | null): void {
   const wasHotel = selected?.s === 'Hotel';
   selected = b;
   if (highlight) { viewer.entities.remove(highlight); highlight = null; }
-  if (!b || !site) { if (card) card.hidden = true; return; }
+  if (!b || !site) { if (card) card.hidden = true; pisosPanel?.show(false); return; }
+  if (b.s !== 'Hotel') pisosPanel?.show(false);
+  else if (revit?.visible) pisosPanel?.show(true);
 
   const pos = b.r.map(([e, n]) => enuToWorld(e, n, 0, site!.matrix));
   const hBase = 2572 + b.b - 0.5;
@@ -323,7 +337,11 @@ function select(b: Building | null): void {
 
   const hotel = b.s === 'Hotel';
   if (hotel && !wasHotel) {
-    playHotel();
+    if (revit) {
+      playRevit();
+      // con el modelo real a la vista no hace falta el prisma de selección
+      if (highlight) { viewer.entities.remove(highlight); highlight = null; }
+    } else playHotel();
     stopOrbit();
     cam.flyTo({ pivot: placeWorld('hotel'), pitch: -0.38, range: 290 }, 1.8);
   }
@@ -396,13 +414,27 @@ async function boot(): Promise<void> {
   (window as unknown as { __READY__?: boolean }).__READY__ = true;
   site.done.then(async () => {
     trafico = await createTrafico(viewer, site!.matrix);
+    revit = await loadRevitHotel(viewer, site!.matrix);
+    if (revit) {
+      revit.setNight(currentNight);
+      pisosPanel = createPisosPanel(revit, (i) => {
+        if (!revit) return;
+        stopOrbit();
+        pisosPanel?.mark(i);
+        if (i < 0) revit.full();
+        else revit.openAt(i);
+        // al abrir un piso la cámara sube para leer la planta
+        const c = revit.caja;
+        cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), pitch: i < 0 ? -0.42 : -0.95, range: i < 0 ? 230 : 150 }, 1.4);
+      });
+    }
     (window as unknown as { __ALL__?: boolean }).__ALL__ = true;
   });
 }
 
 const stats = { fps: 0, frames: 0, t0: performance.now(), low: 0 };
 (window as unknown as { __DBG__?: unknown }).__DBG__ = {
-  Cesium, viewer, cam, getSite: () => site, enuToWorld, select, stats, playHotel, getTrafico: () => trafico,
+  Cesium, viewer, cam, getSite: () => site, enuToWorld, select, stats, playHotel, playRevit, getRevit: () => revit, getTrafico: () => trafico,
   setQuality: (q: number) => { quality = q; applyQuality(); },
 };
 
@@ -437,6 +469,7 @@ function tick(): void {
     if (piso >= HOTEL_PISOS) { site.setHotelFloors(99); hotelAnim = null; }
     else site.setHotelFloors(piso + e);
   }
+  revit?.update(dt, now);
   trafico?.update(dt);
   const tSec = now * 0.001;
   site?.setTime(tSec);

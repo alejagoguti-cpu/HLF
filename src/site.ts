@@ -55,6 +55,8 @@ export interface Site {
   setTreesVisible(v: boolean): void;
   /** pisos del hotel visibles (99 = completo) */
   setHotelFloors(n: number): void;
+  /** zona ENU donde el hotel lo dibuja el modelo de Revit (null = ninguna) */
+  setRevitZone(box: [number, number, number, number] | null): void;
   buildingAt(world: Cesium.Cartesian3): Building | null;
 }
 
@@ -374,6 +376,9 @@ export async function loadSite(
         cShader.setUniform('uHazeStart', hazeStart);
         for (const sh of tShaders) sh.setUniform('uHazeStart', hazeStart);
       }
+    },
+    setRevitZone(box: [number, number, number, number] | null) {
+      fShader.setUniform('uRevitBox', box ? new Cesium.Cartesian4(box[0] - 1, box[1] - 1, box[2] + 1, box[3] + 1) : new Cesium.Cartesian4(0, 0, 0, 0));
     },
     setHotelFloors(n: number) {
       fShader.setUniform('uHotelPisos', n);

@@ -16,6 +16,7 @@ interface Manifest { niveles: NivelInfo[]; caja: [number, number, number, number
 
 interface Nivel extends NivelInfo {
   model: Cesium.Model;
+  shader: Cesium.CustomShader;
   /** desplazamiento vertical (m) y opacidad actuales, y la animación en curso */
   off: number;
   alpha: number;
@@ -71,8 +72,10 @@ async function pixels(url: string, fallback: [number, number, number]): Promise<
 
 function revitShader(ladrillo: Cesium.TextureUniform, teja: Cesium.TextureUniform): Cesium.CustomShader {
   return new Cesium.CustomShader({
+    translucencyMode: Cesium.CustomShaderTranslucencyMode.TRANSLUCENT,
     uniforms: {
       uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
+      uAlpha: { type: Cesium.UniformType.FLOAT, value: 1 },
       uLadrillo: { type: Cesium.UniformType.SAMPLER_2D, value: ladrillo },
       uTeja: { type: Cesium.UniformType.SAMPLER_2D, value: teja },
     },
@@ -190,6 +193,7 @@ function revitShader(ladrillo: Cesium.TextureUniform, teja: Cesium.TextureUnifor
           material.roughness = rough;
           material.specular = spec;
           material.emissive = col * 0.28 * (1.0 - uNight);
+          material.alpha = uAlpha;
           return;
         } else {
           col = vec3(0.52, 0.50, 0.47) * (0.92 + 0.14 * rn(vRP.xz * 1.5 + vRP.y)); // columnas, escaleras y vigas: concreto
@@ -198,6 +202,7 @@ function revitShader(ladrillo: Cesium.TextureUniform, teja: Cesium.TextureUnifor
         material.roughness = rough;
         material.specular = spec;
         material.emissive = col * 0.14 * (1.0 - uNight);
+        material.alpha = uAlpha;
       }
     `,
   });
@@ -212,10 +217,10 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
     return null;
   }
   const [ladrillo, teja] = await Promise.all([pixels(base + 'tex_ladrillo_hlf.webp', [190, 112, 74]), pixels(base + 'tex_teja.webp', [90, 52, 28])]);
-  const shader = revitShader(ladrillo, teja);
   const niveles: Nivel[] = [];
   for (const info of man.niveles) {
     try {
+      const shader = revitShader(ladrillo, teja);
       const model = await Cesium.Model.fromGltfAsync({
         url: base + info.file,
         modelMatrix: matrix,
@@ -228,7 +233,7 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
       model.customShader = shader;
       model.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(0.45, 0.25);
       viewer.scene.primitives.add(model);
-      niveles.push({ ...info, model, off: 0, alpha: 1, anim: null, shown: false, target: 0 });
+      niveles.push({ ...info, model, shader, off: 0, alpha: 1, anim: null, shown: false, target: 0 });
     } catch (err) {
       console.warn('Nivel de Revit no cargado', info.file, err);
     }
@@ -241,14 +246,13 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
    * con curva suave de salida, para que se vea fluido aunque la página siga cargando.
    */
   const DROP = 5.5;      // m que baja cada piso al entrar
-  const LIFT = 16;       // m que sube un piso al abrir el edificio en un nivel inferior
   const scratch = new Cesium.Matrix4();
   const place = (n: Nivel): void => {
     const t = Cesium.Matrix4.fromTranslation(new Cesium.Cartesian3(0, 0, n.off), scratch);
     n.model.modelMatrix = Cesium.Matrix4.multiply(matrix, t, new Cesium.Matrix4());
     const a = Math.max(0, Math.min(1, n.alpha));
-    n.model.color = a >= 0.999 ? (undefined as unknown as Cesium.Color) : Cesium.Color.WHITE.withAlpha(a);
-    n.model.show = a > 0.01;
+    n.shader.setUniform('uAlpha', a);
+    n.model.show = a > 0.005;
   };
   const anim = (n: Nivel, o1: number, a1: number, start: number, dur: number) => {
     n.anim = { o0: n.off, o1, a0: n.alpha, a1, start, dur };
@@ -272,7 +276,7 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
         n.off = DROP;
         n.alpha = 0;
         place(n);
-        anim(n, 0, 1, t0 + k * 700, 1100);
+        anim(n, 0, 1, t0 + k * 250, 750);
       });
     },
     openAt(i: number) {
@@ -280,15 +284,31 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
       api.abierto = i;
       const now = performance.now();
       let k = 0;
-      // los pisos de arriba se levantan y se desvanecen (de arriba hacia abajo); los de abajo vuelven a su sitio
-      for (const n of [...niveles].reverse()) if (n.i > i) anim(n, LIFT, 0, now + k++ * 90, 700);
-      for (const n of niveles) if (n.i <= i) anim(n, 0, 1, now, 700);
+      // Los pisos de arriba se levantan con fuerza escalonadamente (efecto exploded view / división nítida)
+      // Cada nivel sube progresivamente más alto para que la separación del edificio sea muy visible
+      for (const n of [...niveles].reverse()) {
+        if (n.i > i) {
+          const liftHeight = 24 + (n.i - i) * 8.0;
+          n.alpha = 1;
+          anim(n, liftHeight, 0, now + k++ * 80, 1300);
+        }
+      }
+      for (const n of niveles) {
+        if (n.i <= i) {
+          n.alpha = 1;
+          anim(n, 0, 1, now, 800);
+        }
+      }
     },
     full() {
       api.visible = true;
       api.abierto = -1;
       const now = performance.now();
-      niveles.forEach((n, k) => { if (n.off !== 0 || n.alpha < 1) anim(n, 0, 1, now + k * 90, 800); });
+      let k = 0;
+      // Bajan de arriba hacia abajo encajando con precisión en su sitio original
+      for (const n of niveles) {
+        if (n.off !== 0 || n.alpha < 1) anim(n, 0, 1, now + k++ * 80, 900);
+      }
     },
     hide() {
       api.visible = false;
@@ -296,7 +316,7 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
       for (const n of niveles) { n.anim = null; n.off = 0; n.alpha = 0; place(n); }
     },
     setNight(v: number) {
-      shader.setUniform('uNight', v);
+      for (const n of niveles) n.shader.setUniform('uNight', v);
     },
     update(_dt: number, now: number) {
       if (!api.visible) return;
@@ -306,7 +326,14 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
         const t = Math.min(1, (now - a.start) / a.dur);
         const e = easeOut(t);
         n.off = a.o0 + (a.o1 - a.o0) * e;
-        n.alpha = a.a0 + (a.a1 - a.a0) * Math.min(1, t * 1.6);
+        if (a.a1 < a.a0) {
+          // Al dividirse: se levantan manteniéndose 100% visibles durante el 60% del movimiento,
+          // y solo se desvanecen suavemente en el tramo final alto
+          const fadeT = Math.max(0, (t - 0.6) / 0.4);
+          n.alpha = a.a0 + (a.a1 - a.a0) * (fadeT * fadeT);
+        } else {
+          n.alpha = a.a0 + (a.a1 - a.a0) * Math.min(1, t * 1.5);
+        }
         place(n);
         if (t >= 1) n.anim = null;
       }
@@ -326,20 +353,19 @@ export function createPisosPanel(hotel: RevitHotel, onPick: (i: number) => void)
       -webkit-backdrop-filter: blur(18px) saturate(140%); color: #eef2f7; font-family: ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif;
       display: grid; gap: 3px; }
     .pisos[hidden] { display: none; }
-    .pisos small { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: #9dc4ea; padding: 0 6px 6px; }
     .pisos button { all: unset; box-sizing: border-box; width: 100%; padding: 8px 10px; border-radius: 9px; font-size: 12.5px; cursor: pointer;
       display: flex; justify-content: space-between; color: rgba(238,242,247,.72); }
     .pisos button:hover { background: rgba(255,255,255,.08); color: #eef2f7; }
     .pisos button.on { background: #e8eef6; color: #0a0e14; font-weight: 600; }
     .pisos button span { opacity: .6; font-variant-numeric: tabular-nums; }
     @media (max-width: 720px) { .pisos { top: auto; bottom: 250px; left: 12px; right: 12px; width: auto; grid-template-columns: repeat(4, 1fr); }
-      .pisos small { grid-column: 1 / -1; } .pisos button span { display: none; } }
+      .pisos button span { display: none; } }
   `;
   document.head.appendChild(style);
   const el = document.createElement('aside');
   el.className = 'pisos';
   el.hidden = true;
-  el.innerHTML = '<small>Pisos · modelo Revit</small>';
+  el.innerHTML = '';
   const buttons = new Map<number, HTMLButtonElement>();
   const add = (i: number, label: string, right: string) => {
     const b = document.createElement('button');

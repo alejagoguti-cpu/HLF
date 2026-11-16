@@ -143,8 +143,7 @@ viewer.clock.currentTime = Cesium.JulianDate.fromIso8601('2026-06-21T16:50:00-05
 
 const cam = new ArchCamera(viewer);
 const placeWorld = (key: keyof typeof PLACES) => enuToWorld(PLACES[key].e, PLACES[key].n, PLACES[key].u);
-const homePivot = placeWorld('hotel');
-cam.flyTo({ pivot: homePivot, heading: VIEWS.general.heading, pitch: VIEWS.general.pitch, range: VIEWS.general.range * 1.8 }, 0);
+cam.flyTo({ pivot: enuToWorld(-110, 150, 10), heading: -0.75, pitch: -0.60, range: 1750 }, 0);
 cam.groundHeight = (c) => scene.globe.getHeight(c);
 
 /* ------------------------------------------------------------ luz / hora */
@@ -263,6 +262,10 @@ function stopOrbit(): void {
 function setView(key: keyof typeof VIEWS, dur = 2.0): void {
   stopOrbit();
   btnPiso2?.classList.remove('on');
+  if (revit && revit.abierto >= 0) {
+    revit.full();
+    pisosPanel?.mark(-1);
+  }
   const v = VIEWS[key];
   cam.flyTo({ pivot: placeWorld(v.place as keyof typeof PLACES), heading: v.heading, pitch: v.pitch, range: v.range }, dur);
 }
@@ -352,41 +355,29 @@ let revit: RevitHotel | null = null;
 let pisosPanel: { show(v: boolean): void; mark(i: number): void } | null = null;
 let revitPending = false;
 let autoPlayed = false;
-/** Al levantarse el telón de carga: la cámara llega al hotel y el modelo de Revit se arma piso por piso. */
+/** Al levantarse el telón de carga: la cámara vuela suavemente al hotel y el modelo se arma piso por piso. */
 async function autoPlayHotel(): Promise<void> {
   if (autoPlayed) return;
   autoPlayed = true;
   await initRevit();
   if (!site || !revit) return;
   stopOrbit();
-  const c = revit.caja;
-  // transición cinematográfica: del contexto (Unicentro y el barrio) al hotel, en una sola curva continua
-  // (Bézier cuadrática para el punto de mira, rumbo/inclinación interpolados y distancia en escala logarítmica,
-  // todo con una curva de velocidad suave de principio a fin: sin paradas entre tramos)
-  const P0 = { e: -110, n: 150, u: 10, h: -0.75, p: -0.62, r: 1750 };
-  const P1 = { e: -175, n: 235, u: 10, h: -0.05, p: -0.5, r: 640 };
-  // llegada: el hotel completo en cuadro, corrido a la derecha para que los paneles no lo tapen
-  void c;
-  const P2 = { e: -228, n: 305, u: 12, h: -0.63, p: -0.45, r: 275 }; // encuadre aprobado (fachada del Revit de frente)
-  const DUR = 10500;
-  let lanzado = false;
-  await new Promise<void>((done) => {
-    const t0 = performance.now();
-    const paso = () => {
-      const t = Math.min(1, (performance.now() - t0) / DUR);
-      const s = t * t * t * (t * (t * 6 - 15) + 10); // smootherstep: arranca y llega sin tirones
-      const q = (k: 'e' | 'n' | 'u' | 'h' | 'p') => (1 - s) * (1 - s) * P0[k] + 2 * (1 - s) * s * P1[k] + s * s * P2[k];
-      const lr = (1 - s) * (1 - s) * Math.log(P0.r) + 2 * (1 - s) * s * Math.log(P1.r) + s * s * Math.log(P2.r);
-      cam.flyTo({ pivot: enuToWorld(q('e'), q('n'), q('u')), heading: q('h'), pitch: q('p'), range: Math.exp(lr) }, 0);
-      if (t < 1) requestAnimationFrame(paso); else done();
-    };
-    requestAnimationFrame(paso);
-  });
-  // la milhoja arranca cuando la cámara ya quedó quieta en el encuadre final
-  if (!lanzado) { lanzado = true; arrancarHotel(); }
-  site?.startBackground();
-  // el reloj del día empieza a correr cuando la cámara llega
-  // la hora queda fija (sin reloj corriendo)
+
+  // Vuelo cinematográfico fluido y continuo hacia el Hotel La Fontana en 3.8s (sin micro-tirones)
+  cam.flyTo(
+    {
+      pivot: enuToWorld(-228, 305, 12),
+      heading: -0.63,
+      pitch: -0.45,
+      range: 275,
+    },
+    3.8,
+  );
+
+  setTimeout(() => {
+    arrancarHotel();
+    site?.startBackground();
+  }, 3800);
 }
 function arrancarHotel(): void {
   if (!site) return;
@@ -420,15 +411,15 @@ function initRevit(): Promise<void> {
       if (i < 0) {
         revit.full();
         const c = revit.caja;
-        cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), heading: 0.55, pitch: -0.42, range: 230 }, 1.4);
+        cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), heading: 0.55, pitch: -0.42, range: 240 }, 2.0);
       } else if (i === 1) {
         revit.openAt(1);
         // Encuadre cenital exacto de Piso 2 en planta arquitectónica
-        cam.flyTo({ pivot: enuToWorld(-222, 278, 12), heading: 0.1928, pitch: -1.55, range: 105 }, 1.2);
+        cam.flyTo({ pivot: enuToWorld(-222, 278, 12), heading: 0.1928, pitch: -1.55, range: 105 }, 2.5);
       } else {
         revit.openAt(i);
         const c = revit.caja;
-        cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), pitch: -0.95, range: 150 }, 1.4);
+        cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), pitch: -0.95, range: 150 }, 2.0);
       }
     });
     // si ya se había pedido el hotel mientras cargaba, arranca la animación
@@ -437,20 +428,37 @@ function initRevit(): Promise<void> {
   return revitLoading;
 }
 
-/** Muestra la remodelación del Piso 2 en planta arquitectónica cenital, perfectamente encuadrada. */
-async function verPiso2Planta(): Promise<void> {
+/** Alterna entre la vista cenital del Piso 2 y el edificio completo. */
+async function togglePiso2(): Promise<void> {
   stopOrbit();
   if (cam.isWalking) cam.exitWalk();
   await initRevit();
   if (!revit) return;
   site?.setRevitBlocks(revit.bloques, revit.huella);
-  revit.openAt(1);
-  pisosPanel?.mark(1);
-  pisosPanel?.show(true);
-  btnPiso2?.classList.add('on');
-  cam.flyTo({ pivot: enuToWorld(-222, 278, 12), heading: 0.1928, pitch: -1.55, range: 105 }, 1.3);
+
+  const yaActivo = btnPiso2?.classList.contains('on') && revit.abierto === 1;
+  if (yaActivo) {
+    // Si ya está activo: restaura el edificio completo
+    btnPiso2?.classList.remove('on');
+    pisosPanel?.mark(-1);
+    revit.full();
+    const c = revit.caja;
+    cam.flyTo({
+      pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12),
+      heading: 0.55,
+      pitch: -0.42,
+      range: 240,
+    }, 2.0);
+  } else {
+    // Si no está activo: separa los pisos superiores y encuadra el Piso 2 en planta
+    btnPiso2?.classList.add('on');
+    pisosPanel?.mark(1);
+    pisosPanel?.show(true);
+    revit.openAt(1);
+    cam.flyTo({ pivot: enuToWorld(-222, 278, 12), heading: 0.1928, pitch: -1.55, range: 105 }, 2.5);
+  }
 }
-btnPiso2?.addEventListener('click', () => void verPiso2Planta());
+btnPiso2?.addEventListener('click', () => void togglePiso2());
 function playRevit(): void {
   if (!site || !revit) return;
   // solo desaparece el bloque que el Revit reemplaza; el resto del hotel queda intacto

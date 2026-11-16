@@ -147,6 +147,21 @@ html, body {
 .dock button:hover { color: var(--ink); background: rgba(255, 255, 255, 0.075); }
 .dock button:active { transform: translateY(0.5px); }
 .dock button.on { color: #0a0e14; background: #e8eef6; font-weight: 600; }
+#btnPiso2 {
+  color: #eed69b;
+  font-weight: 600;
+  border: 1px solid rgba(238, 214, 155, 0.32);
+}
+#btnPiso2:hover {
+  color: #fff;
+  border-color: rgba(238, 214, 155, 0.7);
+  background: rgba(238, 214, 155, 0.12);
+}
+#btnPiso2.on {
+  color: #0d131a;
+  background: #f1d89b;
+  border-color: #f1d89b;
+}
 
 /* ---------------- pista ---------------- */
 

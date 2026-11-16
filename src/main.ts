@@ -252,6 +252,7 @@ document.querySelectorAll<HTMLButtonElement>('[data-light]').forEach((btn) => {
 let autoOrbit = false;
 const btnOrbit = $<HTMLButtonElement>('btnOrbit');
 const btnPed = $<HTMLButtonElement>('btnPedestrian');
+const btnPiso2 = $<HTMLButtonElement>('btnPiso2');
 function stopOrbit(): void {
   autoOrbit = false;
   btnOrbit?.classList.remove('on');
@@ -259,6 +260,7 @@ function stopOrbit(): void {
 
 function setView(key: keyof typeof VIEWS, dur = 2.0): void {
   stopOrbit();
+  btnPiso2?.classList.remove('on');
   const v = VIEWS[key];
   cam.flyTo({ pivot: placeWorld(v.place as keyof typeof PLACES), heading: v.heading, pitch: v.pitch, range: v.range }, dur);
 }
@@ -268,6 +270,7 @@ $('btnAerial')?.addEventListener('click', () => setView('aerial'));
 $('btnArch')?.addEventListener('click', () => setView('arch'));
 btnPed?.addEventListener('click', () => {
   stopOrbit();
+  btnPiso2?.classList.remove('on');
   if (cam.isWalking) cam.exitWalk();
   else cam.enterWalk(selected ? buildingDoor(selected) : undefined);
 });
@@ -382,17 +385,41 @@ function initRevit(): Promise<void> {
       if (!revit) return;
       stopOrbit();
       pisosPanel?.mark(i);
-      if (i < 0) revit.full();
-      else revit.openAt(i);
-      // al abrir un piso la cámara sube para leer la planta
-      const c = revit.caja;
-      cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), pitch: i < 0 ? -0.42 : -0.95, range: i < 0 ? 230 : 150 }, 1.4);
+      btnPiso2?.classList.toggle('on', i === 1);
+      if (i < 0) {
+        revit.full();
+        const c = revit.caja;
+        cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), heading: 0.55, pitch: -0.42, range: 230 }, 1.4);
+      } else if (i === 1) {
+        revit.openAt(1);
+        // Encuadre cenital exacto de Piso 2 en planta arquitectónica
+        cam.flyTo({ pivot: enuToWorld(-222, 278, 12), heading: 0.1928, pitch: -1.55, range: 105 }, 1.2);
+      } else {
+        revit.openAt(i);
+        const c = revit.caja;
+        cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), pitch: -0.95, range: 150 }, 1.4);
+      }
     });
     // si ya se había pedido el hotel mientras cargaba, arranca la animación
     if (revitPending) { revitPending = false; playRevit(); if (highlight) { viewer.entities.remove(highlight); highlight = null; } }
   })();
   return revitLoading;
 }
+
+/** Muestra la remodelación del Piso 2 en planta arquitectónica cenital, perfectamente encuadrada. */
+async function verPiso2Planta(): Promise<void> {
+  stopOrbit();
+  if (cam.isWalking) cam.exitWalk();
+  await initRevit();
+  if (!revit) return;
+  site?.setRevitBlocks(revit.bloques, revit.huella);
+  revit.openAt(1);
+  pisosPanel?.mark(1);
+  pisosPanel?.show(true);
+  btnPiso2?.classList.add('on');
+  cam.flyTo({ pivot: enuToWorld(-222, 278, 12), heading: 0.1928, pitch: -1.55, range: 105 }, 1.3);
+}
+btnPiso2?.addEventListener('click', () => void verPiso2Planta());
 function playRevit(): void {
   if (!site || !revit) return;
   // solo desaparece el bloque que el Revit reemplaza; el resto del hotel queda intacto
@@ -420,6 +447,7 @@ function buildingDoor(b: Building): Cesium.Cartesian3 {
 function select(b: Building | null): void {
   const wasHotel = selected?.s === 'Hotel';
   selected = b;
+  if (b?.s !== 'Hotel') btnPiso2?.classList.remove('on');
   if (highlight) { viewer.entities.remove(highlight); highlight = null; }
   if (!b || !site) { if (card) card.hidden = true; pisosPanel?.show(false); return; }
   if (b.s !== 'Hotel') pisosPanel?.show(false);

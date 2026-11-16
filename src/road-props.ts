@@ -385,18 +385,6 @@ export function createHotelFountain(
     }),
   );
 
-  // Marquesina negra de acceso y escalinata
-  entities.push(
-    viewer.entities.add({
-      position: localToWorld(fe, 272.1, fu + 3.45),
-      box: { dimensions: new Cesium.Cartesian3(8.6, 2.7, 0.22), material: Cesium.Color.fromCssColorString('#16191e') },
-    }),
-    viewer.entities.add({
-      position: localToWorld(fe, 271.8, fu + 0.28),
-      box: { dimensions: new Cesium.Cartesian3(8.2, 2.8, 0.56), material: stone },
-    }),
-  );
-
   // Faroles cálidos en la reja de la plazoleta y marquesina
   for (let e = -246; e <= -202; e += 8.5) {
     entities.push(

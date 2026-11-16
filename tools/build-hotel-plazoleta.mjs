@@ -50,6 +50,18 @@ const mats = {
     P: [], N: [], UV: [], I: [], n: 0, hasUV: false,
     def: { name: 'CipresVerde', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.16, 0.33, 0.12, 1], metallicFactor: 0.0, roughnessFactor: 0.88 } },
   },
+  materaBeige: {
+    P: [], N: [], UV: [], I: [], n: 0, hasUV: false,
+    def: { name: 'MateraBeige', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.74, 0.70, 0.63, 1], metallicFactor: 0.0, roughnessFactor: 0.84 } },
+  },
+  parasolGris: {
+    P: [], N: [], UV: [], I: [], n: 0, hasUV: false,
+    def: { name: 'ParasolOscuro', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.22, 0.22, 0.25, 1], metallicFactor: 0.05, roughnessFactor: 0.72 } },
+  },
+  vidrioBaranda: {
+    P: [], N: [], UV: [], I: [], n: 0, hasUV: false,
+    def: { name: 'VidrioBaranda', doubleSided: true, alphaMode: 'BLEND', pbrMetallicRoughness: { baseColorFactor: [0.68, 0.80, 0.88, 0.32], metallicFactor: 0.1, roughnessFactor: 0.12 } },
+  },
 };
 
 function addQuad(mat, a, b, c, d, uva = [0, 0], uvb = [1, 0], uvc = [1, 1], uvd = [0, 1]) {
@@ -184,23 +196,95 @@ for (let x = -276; x <= -196; x += 0.42) {
   addBox('hierro', x - 0.02, nReja - 0.02, ZP + 0.32, x + 0.02, nReja + 0.02, ZP + 1.68);
 }
 
-// 6. PÉRGOLA METÁLICA Y SOMBRILLA DEL PATIO IZQUIERDO (foto 5)
-const px0 = -271, px1 = -251, pn0 = 260, pn1 = 272, pzT = ZP + 3.1;
-addBox('lona', px0, pn0, pzT, px1, pn1, pzT + 0.14);
+// 6. PÉRGOLA METÁLICA, PARASOL GIGANTE, MESAS BISTRÓ Y MATERAS DEL PATIO IZQUIERDO
+const px0 = -271, px1 = -252, pn0 = 260, pn1 = 271.5, pzT = ZP + 3.15;
+// Estructura metálica negra (4 módulos con vigas y columnas)
 addBox('hierro', px0 - 0.12, pn0 - 0.12, pzT - 0.06, px1 + 0.12, pn0 + 0.08, pzT + 0.22);
 addBox('hierro', px0 - 0.12, pn1 - 0.08, pzT - 0.06, px1 + 0.12, pn1 + 0.12, pzT + 0.22);
-for (const sx of [px0, (px0 + px1) * 0.5, px1]) {
+const bays = 4;
+for (let i = 0; i <= bays; i++) {
+  const sx = px0 + (px1 - px0) * (i / bays);
+  addBox('hierro', sx - 0.09, pn0 - 0.09, pzT, sx + 0.09, pn1 + 0.09, pzT + 0.18);
   for (const sy of [pn0, pn1]) {
-    addBox('hierro', sx - 0.11, sy - 0.11, ZP, sx + 0.11, sy + 0.11, pzT);
+    addBox('hierro', sx - 0.10, sy - 0.10, ZP, sx + 0.10, sy + 0.10, pzT);
   }
 }
-// Sombrilla grande junto a la pérgola
-const ux = -249.5, uy = 268.5;
-addBox('hierro', ux - 0.08, uy - 0.08, ZP, ux + 0.08, uy + 0.08, ZP + 2.8);
-addTri('hierro', [ux - 3.6, uy - 3.6, ZP + 2.65], [ux + 3.6, uy - 3.6, ZP + 2.65], [ux, uy, ZP + 3.45]);
-addTri('hierro', [ux + 3.6, uy - 3.6, ZP + 2.65], [ux + 3.6, uy + 3.6, ZP + 2.65], [ux, uy, ZP + 3.45]);
-addTri('hierro', [ux + 3.6, uy + 3.6, ZP + 2.65], [ux - 3.6, uy + 3.6, ZP + 2.65], [ux, uy, ZP + 3.45]);
-addTri('hierro', [ux - 3.6, uy + 3.6, ZP + 2.65], [ux - 3.6, uy - 3.6, ZP + 2.65], [ux, uy, ZP + 3.45]);
+// Lona blanca plegada por módulos + focos cálidos empotrados
+for (let i = 0; i < bays; i++) {
+  const bx0 = px0 + (px1 - px0) * (i / bays) + 0.12;
+  const bx1 = px0 + (px1 - px0) * ((i + 1) / bays) - 0.12;
+  const pleats = 4;
+  for (let p = 0; p < pleats; p++) {
+    const py0 = pn0 + 0.2 + ((pn1 - pn0 - 0.4) * p) / pleats;
+    const py1 = pn0 + 0.2 + ((pn1 - pn0 - 0.4) * (p + 1)) / pleats;
+    const pyM = (py0 + py1) * 0.5;
+    addQuad('lona', [bx0, py0, pzT - 0.02], [bx1, py0, pzT - 0.02], [bx1, pyM, pzT - 0.22], [bx0, pyM, pzT - 0.22]);
+    addQuad('lona', [bx0, pyM, pzT - 0.22], [bx1, pyM, pzT - 0.22], [bx1, py1, pzT - 0.02], [bx0, py1, pzT - 0.02]);
+  }
+  const lx = (bx0 + bx1) * 0.5;
+  addBox('luzCalida', lx - 0.12, (pn0 + pn1) * 0.5 - 0.12, pzT - 0.24, lx + 0.12, (pn0 + pn1) * 0.5 + 0.12, pzT - 0.18);
+}
+
+// Fila de materas rectangulares beige con vegetación densa y baranda de vidrio al frente de la pérgola
+for (let mx = px0; mx < px1 - 0.4; mx += 1.55) {
+  addBox('materaBeige', mx + 0.04, pn0 - 0.72, ZP, mx + 1.48, pn0 - 0.14, ZP + 0.62);
+  addBox('cipres', mx + 0.12, pn0 - 0.64, ZP + 0.62, mx + 1.40, pn0 - 0.22, ZP + 1.18);
+}
+addBox('vidrioBaranda', px0, pn0 - 0.08, ZP + 0.62, px1, pn0 - 0.03, ZP + 1.35);
+
+// Parasol gigante octogonal con varillas radiales junto a la pérgola
+const ux = -248.5, uy = 267.5;
+addBox('hierro', ux - 0.35, uy - 0.35, ZP, ux + 0.35, uy + 0.35, ZP + 0.08);
+addBox('hierro', ux - 0.09, uy - 0.09, ZP, ux + 0.09, uy + 0.09, ZP + 3.05);
+addBox('luzCalida', ux - 0.18, uy - 0.18, ZP + 2.75, ux + 0.18, uy + 0.18, ZP + 2.86);
+const uR = 3.95, uZ0 = ZP + 2.72, uZ1 = ZP + 3.65, uSeg = 8;
+for (let k = 0; k < uSeg; k++) {
+  const a0 = (k / uSeg) * Math.PI * 2;
+  const a1 = ((k + 1) / uSeg) * Math.PI * 2;
+  const p0 = [ux + Math.cos(a0) * uR, uy + Math.sin(a0) * uR, uZ0];
+  const p1 = [ux + Math.cos(a1) * uR, uy + Math.sin(a1) * uR, uZ0];
+  addTri('parasolGris', p0, p1, [ux, uy, uZ1]);
+  // Varilla radial metálica inferior
+  const rm = [ux + Math.cos(a0) * (uR * 0.94), uy + Math.sin(a0) * (uR * 0.94), uZ0 + 0.02];
+  addQuad('hierro', [ux - 0.03, uy - 0.03, ZP + 2.65], [ux + 0.03, uy + 0.03, ZP + 2.65], rm, rm);
+}
+
+// Anillos concéntricos de adoquín en el patio frente al parasol
+for (const rRing of [3.2, 5.2, 7.2]) {
+  const segs = 28;
+  for (let k = 0; k < segs; k++) {
+    const a0 = (k / segs) * Math.PI * 2;
+    const a1 = ((k + 1) / segs) * Math.PI * 2;
+    const r0 = rRing, r1 = rRing + 0.24;
+    addQuad('ladrillo',
+      [ux + Math.cos(a0) * r0, uy + Math.sin(a0) * r0, ZP + 0.015],
+      [ux + Math.cos(a0) * r1, uy + Math.sin(a0) * r1, ZP + 0.015],
+      [ux + Math.cos(a1) * r1, uy + Math.sin(a1) * r1, ZP + 0.015],
+      [ux + Math.cos(a1) * r0, uy + Math.sin(a1) * r0, ZP + 0.015]);
+  }
+}
+
+// Mesas y sillas bistró bajo el parasol y la pérgola + 2 calefactores de patio
+const bistroCoords = [
+  [ux - 1.8, uy - 1.2], [ux + 1.6, uy - 1.3], [ux - 1.4, uy + 1.6],
+  [-255.5, 264.5], [-259.5, 265.0], [-264.0, 264.5],
+];
+for (const [mx, my] of bistroCoords) {
+  addBox('hierro', mx - 0.04, my - 0.04, ZP, mx + 0.04, my + 0.04, ZP + 0.72);
+  addBox('hierro', mx - 0.42, my - 0.42, ZP + 0.72, mx + 0.42, my + 0.42, ZP + 0.76);
+  for (let c = 0; c < 3; c++) {
+    const ca = (c / 3) * Math.PI * 2 + 0.4;
+    const cx = mx + Math.cos(ca) * 0.72, cy = my + Math.sin(ca) * 0.72;
+    addBox('hierro', cx - 0.20, cy - 0.20, ZP, cx + 0.20, cy + 0.20, ZP + 0.44);
+    addBox('hierro', cx - 0.20, cy + 0.14, ZP + 0.44, cx + 0.20, cy + 0.20, ZP + 0.84);
+  }
+}
+for (const [hx, hy] of [[ux - 0.6, uy + 2.4], [-257.5, 263.0]]) {
+  addBox('hierro', hx - 0.22, hy - 0.22, ZP, hx + 0.22, hy + 0.22, ZP + 0.85);
+  addBox('hierro', hx - 0.05, hy - 0.05, ZP + 0.85, hx + 0.05, hy + 0.05, ZP + 2.15);
+  addBox('luzCalida', hx - 0.10, hy - 0.10, ZP + 1.95, hx + 0.10, hy + 0.10, ZP + 2.12);
+  addBox('hierro', hx - 0.40, hy - 0.40, ZP + 2.15, hx + 0.40, hy + 0.40, ZP + 2.22);
+}
 
 // 7. BALCÓN IZQUIERDO ESCALONADO (esquina oeste de la fachada principal, foto 4)
 for (let fl = 1; fl <= 4; fl++) {

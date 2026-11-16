@@ -300,6 +300,40 @@ export async function createTrafico(
     }
   }
 
+  // Carros parqueados en los parqueaderos de Unicentro (Oriente, Occidente, Nororiente, Suroriente)
+  interface Parqueado { e: number; n: number; u: number; th: number; tipo: Carro['tipo']; model: Cesium.Model | null }
+  const parqueados: Parqueado[] = [];
+  const addParkingBlock = (e0: number, e1: number, n0: number, n1: number, cols: number, rows: number, baseAngle: number, occ = 0.68) => {
+    for (let cIdx = 0; cIdx < cols; cIdx++) {
+      const e = cols === 1 ? (e0 + e1) * 0.5 : e0 + (cIdx / (cols - 1)) * (e1 - e0);
+      for (let rIdx = 0; rIdx < rows; rIdx++) {
+        if (rnd() > occ) continue;
+        const n = rows === 1 ? (n0 + n1) * 0.5 : n0 + (rIdx / (rows - 1)) * (n1 - n0);
+        if (d(e, n) > 0.3) continue; // no parquear encima de calzadas
+        const r = rnd();
+        const tipo: Carro['tipo'] = r < 0.08 ? 'taxi' : r < 0.42 ? 'suv' : 'sedan';
+        const flip = rnd() < 0.5 ? 0 : Math.PI;
+        const hEst = alt(e, n);
+        parqueados.push({
+          e: e + (rnd() - 0.5) * 0.25,
+          n: n + (rnd() - 0.5) * 0.25,
+          u: hEst > -1.5 ? hEst : 3.55,
+          th: baseAngle + flip + (rnd() - 0.5) * 0.07,
+          tipo,
+          model: null,
+        });
+      }
+    }
+  };
+  // Parqueadero Oriental (filas N-S, carros mirando E/O)
+  addParkingBlock(92, 134, -22, 62, 4, 15, 0.05, 0.70);
+  // Parqueadero Nororiental
+  addParkingBlock(52, 108, 114, 146, 5, 4, 0.12, 0.62);
+  // Parqueadero Suroriental
+  addParkingBlock(58, 106, -104, -56, 4, 6, 0.10, 0.65);
+  // Parqueadero Occidental
+  addParkingBlock(-132, -98, -46, 32, 3, 12, 0.04, 0.68);
+
   const scratchT = new Cesium.Cartesian3();
   const scratchR = new Cesium.Matrix3();
   const scratchL = new Cesium.Matrix4();
@@ -357,6 +391,28 @@ export async function createTrafico(
       }
       if (i % 6 === 5) await new Promise((r) => setTimeout(r, 35));
     }
+
+    for (let i = 0; i < parqueados.length; i++) {
+      const pk = parqueados[i];
+      const glb = pk.tipo === 'taxi' ? 'carro_taxi.glb' : pk.tipo === 'suv' ? 'carro_suv.glb' : 'carro.glb';
+      try {
+        const model = await Cesium.Model.fromGltfAsync({
+          url: base + glb,
+          upAxis: Cesium.Axis.Y,
+          forwardAxis: Cesium.Axis.X,
+          shadows: Cesium.ShadowMode.ENABLED,
+          color: pk.tipo === 'taxi' ? Cesium.Color.WHITE : Cesium.Color.fromCssColorString(COLORES[(i * 3) % COLORES.length]),
+          colorBlendMode: Cesium.ColorBlendMode.MIX,
+          colorBlendAmount: pk.tipo === 'taxi' ? 0 : 0.28,
+        });
+        viewer.scene.primitives.add(model);
+        pk.model = model;
+        place(pk);
+      } catch {
+        /* sin carro parqueado */
+      }
+      if (i % 8 === 7) await new Promise((r) => setTimeout(r, 30));
+    }
   })();
 
   let visible = true;
@@ -369,6 +425,7 @@ export async function createTrafico(
     setVisible(v: boolean) {
       visible = v;
       for (const c of carros) if (c.model) c.model.show = v;
+      for (const pk of parqueados) if (pk.model) pk.model.show = v;
       for (const p of peatones) if (p.model) p.model.show = v;
       for (const s of semaforos) {
         s.nsLuz.show = v;

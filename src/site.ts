@@ -171,6 +171,7 @@ export async function loadSite(
   list.push({ key: 'hotel_plazoleta', file: 'hotel_plazoleta.glb', kind: 'cubierta_pbr', label: 'Plazoleta y acceso · Hotel', dist: -0.8 });
   list.push({ key: 'torres_vecinas', file: 'torres_vecinas.glb', kind: 'cubierta_pbr', label: 'Torres vecinas PBR', dist: -0.6 });
   list.push({ key: 'esquina_ak15', file: 'esquina_ak15.glb', kind: 'cubierta_pbr', label: 'Esquina Ak 15 PBR', dist: -0.55 });
+  list.push({ key: 'metro127', file: 'metro127.glb', kind: 'cubierta_pbr', label: 'Metro 127 · Sonesta PBR', dist: -0.52 });
   list.push({ key: 'unicentro_cubierta', file: 'unicentro_cubierta.glb', kind: 'cubierta_pbr', label: 'Cubierta · Unicentro', dist: -0.5 });
   list.sort((a, b) => a.dist - b.dist);
   const CAPA: Record<string, [number, string]> = {
@@ -403,13 +404,13 @@ export async function loadSite(
       const polys = edif.edificios
         .filter((b) => ids.includes(b.id))
         .map((b) => {
-          // la huella se agranda 0,6 m para que no queden restos del volumen genérico en el borde
+          // la huella se agranda 1 m (alero incluido) para que no queden restos del volumen genérico en el borde
           const cx = b.r.reduce((s, p) => s + p[0], 0) / b.r.length;
           const cy = b.r.reduce((s, p) => s + p[1], 0) / b.r.length;
           return new Cesium.ClippingPolygon({
             positions: b.r.map(([e, n]) => {
               const dx = e - cx, dy = n - cy, l = Math.hypot(dx, dy) || 1;
-              return enuToWorld(e + (dx / l) * 0.6, n + (dy / l) * 0.6, 0, matrix);
+              return enuToWorld(e + (dx / l) * 1.0, n + (dy / l) * 1.0, 0, matrix);
             }),
           });
         });

@@ -303,3 +303,120 @@ export function buildRoadMarkingsAndSigns(
     },
   };
 }
+
+/**
+ * Fuente / cascada "La Fontana", marquesina de acceso y faroles de la plazoleta
+ * frente a la fachada sur del Hotel Estelar La Fontana.
+ */
+export function createHotelFountain(
+  viewer: Cesium.Viewer,
+  matrix: Cesium.Matrix4,
+): { update(t: number): void; setVisible(v: boolean): void } {
+  const localToWorld = (e: number, n: number, u: number) =>
+    Cesium.Matrix4.multiplyByPoint(matrix, new Cesium.Cartesian3(e, n, u), new Cesium.Cartesian3());
+  const entities: Cesium.Entity[] = [];
+
+  const fe = -225.0;
+  const fn = 263.5;
+  const fu = 4.17;
+
+  const stone = Cesium.Color.fromCssColorString('#7a7771');
+  const darkBronze = Cesium.Color.fromCssColorString('#3d3833');
+  const planter = Cesium.Color.fromCssColorString('#24471b');
+  const poolCol = Cesium.Color.fromCssColorString('#3d7f8f').withAlpha(0.88);
+  const warmGlow = Cesium.Color.fromCssColorString('#ffbe55');
+
+  // Basamento, anillo verde y espejo de agua
+  entities.push(
+    viewer.entities.add({
+      position: localToWorld(fe, fn, fu + 0.32),
+      cylinder: { length: 0.64, topRadius: 3.3, bottomRadius: 3.6, material: stone, slices: 12 },
+    }),
+    viewer.entities.add({
+      position: localToWorld(fe, fn, fu + 0.56),
+      cylinder: { length: 0.24, topRadius: 3.45, bottomRadius: 3.55, material: planter, slices: 12 },
+    }),
+    viewer.entities.add({
+      position: localToWorld(fe, fn, fu + 0.66),
+      cylinder: { length: 0.08, topRadius: 2.95, bottomRadius: 2.95, material: poolCol, slices: 24 },
+    }),
+    // Pedestal y dos platos de la cascada
+    viewer.entities.add({
+      position: localToWorld(fe, fn, fu + 1.35),
+      cylinder: { length: 1.9, topRadius: 0.34, bottomRadius: 0.48, material: darkBronze },
+    }),
+    viewer.entities.add({
+      position: localToWorld(fe, fn, fu + 1.35),
+      cylinder: { length: 0.18, topRadius: 1.95, bottomRadius: 1.55, material: darkBronze, slices: 24 },
+    }),
+    viewer.entities.add({
+      position: localToWorld(fe, fn, fu + 2.2),
+      cylinder: { length: 0.16, topRadius: 1.15, bottomRadius: 0.85, material: darkBronze, slices: 24 },
+    }),
+  );
+
+  // Cortinas de agua animadas (chorro central + dos caídas de cascada)
+  let waterPhase = 0;
+  const jetCol = new Cesium.ColorMaterialProperty(
+    new Cesium.CallbackProperty(() => {
+      const a = 0.62 + 0.18 * Math.sin(waterPhase * 7.0);
+      return Cesium.Color.fromCssColorString('#d9f4ff').withAlpha(a);
+    }, false),
+  );
+  const veilCol = new Cesium.ColorMaterialProperty(
+    new Cesium.CallbackProperty(() => {
+      const a = 0.46 + 0.16 * Math.cos(waterPhase * 5.5);
+      return Cesium.Color.fromCssColorString('#bce8f7').withAlpha(a);
+    }, false),
+  );
+
+  entities.push(
+    viewer.entities.add({
+      position: localToWorld(fe, fn, fu + 2.85),
+      cylinder: { length: 1.25, topRadius: 0.08, bottomRadius: 0.36, material: jetCol, slices: 16 },
+    }),
+    viewer.entities.add({
+      position: localToWorld(fe, fn, fu + 1.78),
+      cylinder: { length: 0.85, topRadius: 1.08, bottomRadius: 1.22, material: veilCol, slices: 24 },
+    }),
+    viewer.entities.add({
+      position: localToWorld(fe, fn, fu + 1.02),
+      cylinder: { length: 0.72, topRadius: 1.88, bottomRadius: 2.08, material: veilCol, slices: 24 },
+    }),
+  );
+
+  // Marquesina negra de acceso y escalinata
+  entities.push(
+    viewer.entities.add({
+      position: localToWorld(fe, 272.1, fu + 3.45),
+      box: { dimensions: new Cesium.Cartesian3(8.6, 2.7, 0.22), material: Cesium.Color.fromCssColorString('#16191e') },
+    }),
+    viewer.entities.add({
+      position: localToWorld(fe, 271.8, fu + 0.28),
+      box: { dimensions: new Cesium.Cartesian3(8.2, 2.8, 0.56), material: stone },
+    }),
+  );
+
+  // Faroles cálidos en la reja de la plazoleta y marquesina
+  for (let e = -246; e <= -202; e += 8.5) {
+    entities.push(
+      viewer.entities.add({
+        position: localToWorld(e, 255.8, fu + 1.1),
+        cylinder: { length: 2.2, topRadius: 0.04, bottomRadius: 0.05, material: darkBronze },
+      }),
+      viewer.entities.add({
+        position: localToWorld(e, 255.8, fu + 2.3),
+        ellipsoid: { radii: new Cesium.Cartesian3(0.16, 0.16, 0.22), material: warmGlow },
+      }),
+    );
+  }
+
+  return {
+    update(t: number) {
+      waterPhase = t;
+    },
+    setVisible(v: boolean) {
+      for (const e of entities) e.show = v;
+    },
+  };
+}

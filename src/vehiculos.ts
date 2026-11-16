@@ -1,6 +1,6 @@
 import * as Cesium from 'cesium';
 import { ASSETS } from './config';
-import { createRealisticTrafficLight, buildRoadMarkingsAndSigns, type RealisticTrafficLight } from './road-props';
+import { createRealisticTrafficLight, buildRoadMarkingsAndSigns, createHotelFountain, type RealisticTrafficLight } from './road-props';
 
 /**
  * Tráfico y peatones: vehículos suaves (sedán, SUV, taxi) sin colisiones,
@@ -167,6 +167,7 @@ export async function createTrafico(
   }
 
   const senalizacion = buildRoadMarkingsAndSigns(viewer, matrix, semaforos, d, alt);
+  const fuente = createHotelFountain(viewer, matrix);
 
   const rnd = (() => {
     let s = 12345;
@@ -406,11 +407,13 @@ export async function createTrafico(
       for (const p of peatones) if (p.model) p.model.show = v;
       for (const s of semaforos) s.rig.setVisible(v);
       senalizacion.setVisible(v);
+      fuente.setVisible(v);
     },
     update(dt: number) {
       if (!visible) return;
       const stepDt = Math.min(0.08, Math.max(0.001, dt));
       tiempo += stepDt;
+      fuente.update(tiempo);
 
       // Actualizar ciclo de semáforos (24 s: 10s verde, 2s amarillo, 12s rojo)
       for (const s of semaforos) {

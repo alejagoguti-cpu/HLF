@@ -126,7 +126,7 @@ let quality = integrated || matchMedia("(pointer: coarse)").matches ? 0.5 : 1;
 function applyQuality(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   // nunca por debajo de la resolución nativa de la pantalla (si no, se ve pixeleado)
-  viewer.resolutionScale = Math.max(1, dpr * (quality >= 1 ? 1 : quality >= 0.5 ? 0.9 : 0.75));
+  viewer.resolutionScale = dpr; // siempre HD: al bajar calidad se recortan sombras/AO, nunca la resolución
   sm.size = quality >= 1 ? 4096 : quality >= 0.5 ? 2048 : 1024;
   sm.softShadows = quality >= 0.5;
   ao.enabled = quality >= 1;

@@ -415,14 +415,26 @@ $('cardWalk')?.addEventListener('click', () => {
 const statusEl = $('status');
 const statusText = $('statusText');
 
+async function waitForSceneReady(): Promise<void> {
+  const deadline = performance.now() + 8000;
+  while (performance.now() < deadline) {
+    const globeOk = scene.globe.tilesLoaded;
+    const tilesOk = !site?.tileset || site.tileset.tilesLoaded;
+    if (globeOk && tilesOk) break;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+}
+
 async function boot(): Promise<void> {
-  progress('Contexto geográfico', 0.04);
+  progress('Cargando el modelo del hotel...', 0.05);
   await new Promise((r) => setTimeout(r, 30));
 
   site = await loadSite(
     viewer,
-    (label, ratio) => progress(label, ratio),
+    (label, ratio) => progress(label, 0.05 + ratio * 0.25),
     (loaded, total, label) => {
+      progress(`Cargando secciones (${loaded}/${total}) · ${label}`, 0.30 + (loaded / Math.max(1, total)) * 0.50);
       if (!statusEl || !statusText) return;
       statusEl.hidden = false;
       statusText.textContent = loaded < total ? `Cargando secciones ${loaded}/${total} · ${label}` : `Modelo completo · ${total} secciones`;
@@ -430,11 +442,19 @@ async function boot(): Promise<void> {
     },
   );
   site.setNight(currentNight);
-  void initRevit(); // temprano
   site.setTarde(currentTarde);
   const activeId = (document.querySelector<HTMLButtonElement>('[data-light].on')?.dataset.light as PresetId) || 'dia';
   applyLook(lookStudio.getPreset(activeId));
   applyQuality();
+
+  // Esperar a que todas las secciones, vehículos y render inicial estén listos antes de abrir
+  await site.done;
+  progress('Cargando tráfico y parqueaderos...', 0.85);
+  trafico = await createTrafico(viewer, site.matrix);
+  (window as unknown as { __ALL__?: boolean }).__ALL__ = true;
+
+  progress('Renderizando escena 3D...', 0.94);
+  await waitForSceneReady();
   progress('Listo', 1);
 
   setView('general', 2.4);
@@ -443,11 +463,6 @@ async function boot(): Promise<void> {
   const hint = $('hint');
   if (hint) setTimeout(() => hint.classList.add('fade'), 9000);
   (window as unknown as { __READY__?: boolean }).__READY__ = true;
-  site.done.then(async () => {
-    trafico = await createTrafico(viewer, site!.matrix);
-    await initRevit();
-    (window as unknown as { __ALL__?: boolean }).__ALL__ = true;
-  });
 }
 
 const stats = { fps: 0, frames: 0, t0: performance.now(), low: 0 };

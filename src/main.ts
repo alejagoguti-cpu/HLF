@@ -143,7 +143,7 @@ viewer.clock.currentTime = Cesium.JulianDate.fromIso8601('2026-06-21T16:50:00-05
 
 const cam = new ArchCamera(viewer);
 const placeWorld = (key: keyof typeof PLACES) => enuToWorld(PLACES[key].e, PLACES[key].n, PLACES[key].u);
-cam.flyTo({ pivot: enuToWorld(-228, 305, 12), heading: 0.55, pitch: -0.42, range: 240 }, 0);
+cam.flyTo({ pivot: enuToWorld(-255, 320, 12), heading: 0.55, pitch: -0.42, range: 260 }, 0);
 cam.groundHeight = (c) => scene.globe.getHeight(c);
 
 /* ------------------------------------------------------------ luz / hora */
@@ -254,14 +254,29 @@ let autoOrbit = false;
 const btnOrbit = $<HTMLButtonElement>('btnOrbit');
 const btnPed = $<HTMLButtonElement>('btnPedestrian');
 const btnPiso2 = $<HTMLButtonElement>('btnPiso2');
+const btnEdificioCompleto = $<HTMLButtonElement>('btnEdificioCompleto');
 function stopOrbit(): void {
   autoOrbit = false;
   btnOrbit?.classList.remove('on');
 }
 
+function verEdificioCompleto(dur = 2.0): void {
+  stopOrbit();
+  if (cam.isWalking) cam.exitWalk();
+  btnPiso2?.classList.remove('on');
+  btnEdificioCompleto?.classList.add('on');
+  pisosPanel?.mark(-1);
+  pisosPanel?.show(true);
+  revit?.full();
+  // Encuadre a la derecha del Hotel La Fontana
+  cam.flyTo({ pivot: enuToWorld(-255, 320, 12), heading: 0.55, pitch: -0.42, range: 260 }, dur);
+}
+btnEdificioCompleto?.addEventListener('click', () => verEdificioCompleto(2.0));
+
 function setView(key: keyof typeof VIEWS, dur = 2.0): void {
   stopOrbit();
   btnPiso2?.classList.remove('on');
+  btnEdificioCompleto?.classList.remove('on');
   if (revit && revit.abierto >= 0) {
     revit.full();
     pisosPanel?.mark(-1);
@@ -276,6 +291,7 @@ $('btnArch')?.addEventListener('click', () => setView('arch'));
 btnPed?.addEventListener('click', () => {
   stopOrbit();
   btnPiso2?.classList.remove('on');
+  btnEdificioCompleto?.classList.remove('on');
   if (cam.isWalking) cam.exitWalk();
   else cam.enterWalk(selected ? buildingDoor(selected) : undefined);
 });
@@ -394,15 +410,17 @@ function initRevit(): Promise<void> {
       stopOrbit();
       pisosPanel?.mark(i);
       btnPiso2?.classList.toggle('on', i === 1);
+      btnEdificioCompleto?.classList.toggle('on', i < 0);
       if (i < 0) {
-        revit.full();
-        const c = revit.caja;
-        cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), heading: 0.55, pitch: -0.42, range: 240 }, 2.0);
+        verEdificioCompleto(2.0);
       } else if (i === 1) {
+        btnEdificioCompleto?.classList.remove('on');
         revit.openAt(1);
         // Encuadre cenital exacto de Piso 2 en planta arquitectónica
         cam.flyTo({ pivot: enuToWorld(-222, 278, 12), heading: 0.1928, pitch: -1.55, range: 105 }, 2.5);
       } else {
+        btnEdificioCompleto?.classList.remove('on');
+        btnPiso2?.classList.remove('on');
         revit.openAt(i);
         const c = revit.caja;
         cam.flyTo({ pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12), pitch: -0.95, range: 150 }, 2.0);
@@ -424,20 +442,12 @@ async function togglePiso2(): Promise<void> {
 
   const yaActivo = btnPiso2?.classList.contains('on') && revit.abierto === 1;
   if (yaActivo) {
-    // Si ya está activo: restaura el edificio completo
-    btnPiso2?.classList.remove('on');
-    pisosPanel?.mark(-1);
-    revit.full();
-    const c = revit.caja;
-    cam.flyTo({
-      pivot: enuToWorld((c[0] + c[2]) / 2, (c[1] + c[3]) / 2, 12),
-      heading: 0.55,
-      pitch: -0.42,
-      range: 240,
-    }, 2.0);
+    // Si ya está activo: restaura el edificio completo con encuadre a la derecha
+    verEdificioCompleto(2.0);
   } else {
     // Si no está activo: separa los pisos superiores y encuadra el Piso 2 en planta
     btnPiso2?.classList.add('on');
+    btnEdificioCompleto?.classList.remove('on');
     pisosPanel?.mark(1);
     pisosPanel?.show(true);
     revit.openAt(1);
@@ -502,8 +512,9 @@ function select(b: Building | null): void {
       if (highlight) { viewer.entities.remove(highlight); highlight = null; }
     } else { revitPending = true; void initRevit(); playHotel(); }
     stopOrbit();
-    const cj = revit?.caja;
-    cam.flyTo(cj ? { pivot: enuToWorld((cj[0] + cj[2]) / 2, (cj[1] + cj[3]) / 2, 12), heading: 0.55, pitch: -0.4, range: 230 } : { pivot: placeWorld('hotel'), pitch: -0.38, range: 290 }, 1.8);
+    btnEdificioCompleto?.classList.add('on');
+    btnPiso2?.classList.remove('on');
+    cam.flyTo({ pivot: enuToWorld(-255, 320, 12), heading: 0.55, pitch: -0.42, range: 260 }, 1.8);
   }
   const piezas = hotel && site ? site.buildings.filter((x) => x.s === 'Hotel') : [b];
   const areaDe = (x: Building) => Math.abs(x.r.reduce((s, p, i) => { const q = x.r[(i + 1) % x.r.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0) / 2);
@@ -588,7 +599,7 @@ async function boot(): Promise<void> {
   applyQuality();
 
   // La cámara se posiciona directamente en el encuadre aprobado del Hotel La Fontana
-  cam.flyTo({ pivot: enuToWorld(-228, 305, 12), heading: 0.55, pitch: -0.42, range: 240 }, 0);
+  cam.flyTo({ pivot: enuToWorld(-255, 320, 12), heading: 0.55, pitch: -0.42, range: 260 }, 0);
 
   // no se entra hasta que esté todo cargado: hotel (Revit), ciudad completa, vegetación y tráfico
   site.startBackground();

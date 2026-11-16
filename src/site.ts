@@ -298,12 +298,15 @@ export async function loadSite(
         sh.setUniform('uHazeStart', hazeStart);
         tShaders.push(sh);
         model.customShader = sh;
-      } else if (s.key === 'Hotel' || s.key === 'hotel_plazoleta') model.customShader = hShader;
+      } else if (s.key === 'Hotel' || s.key === 'hotel_plazoleta' || s.key === 'hotel_cubiertas') model.customShader = hShader;
       else if (s.kind !== 'cubierta_pbr') model.customShader = fShader;
-      // iluminación IBL para reflejos en vidrios y cubiertas
-      model.imageBasedLighting.imageBasedLightingFactor = s.kind === 'cubierta_pbr'
-        ? new Cesium.Cartesian2(0.85, 0.55)
-        : new Cesium.Cartesian2(0.75, 0.45);
+      // iluminación IBL para reflejos en vidrios y cubiertas (protagonismo del Hotel)
+      const isHotelHero = s.key === 'Hotel' || s.key === 'hotel_plazoleta' || s.key === 'hotel_cubiertas';
+      model.imageBasedLighting.imageBasedLightingFactor = isHotelHero
+        ? new Cesium.Cartesian2(1.20, 0.80)
+        : s.kind === 'cubierta_pbr'
+          ? new Cesium.Cartesian2(0.85, 0.55)
+          : new Cesium.Cartesian2(0.70, 0.40);
       scene.primitives.add(model);
       if (s.kind === 'arboles') treeModels.push(model);
       await new Promise<void>((resolve) => {

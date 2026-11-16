@@ -761,31 +761,38 @@ export function hotelPbrShader(): Cesium.CustomShader {
         vec3 upEC = normalize(vUpEC);
         vec3 skyFill = hlfSkyFill(nEC, upEC, uNight, uTarde);
 
-        // Iluminación protagonista del Hotel La Fontana:
-        // 1. Luz clave suave de plazoleta (realza ladrillo, derrames 3D y arbustos incluso en sombra)
-        vec3 keyDirEC = normalize(czm_viewRotation * vec3(0.45, -0.72, 0.52));
-        float keyDiff = max(0.0, dot(nEC, keyDirEC)) * 0.55 + 0.45;
-        vec3 heroFill = col * mix(vec3(1.08, 0.96, 0.86), vec3(0.18, 0.24, 0.36), uNight) * keyDiff * mix(0.62, 0.35, uNight);
+        // Iluminación protagonista del Hotel Estelar La Fontana (destaca sobre todo el contexto):
+        vec3 viewDirEC = normalize(-fsInput.attributes.positionEC);
+        float fresnel = pow(1.0 - max(0.0, dot(nEC, viewDirEC)), 2.6);
 
-        // 2. Bañadores verticales cálidos (wall-washers) sobre machones de ladrillo (estilo foto real)
-        float pierWave = pow(0.5 + 0.5 * cos((vPosM.x + vPosM.z) * 1.45), 2.5);
-        float heightFade = smoothstep(3.8, 5.2, vPosM.y) * smoothstep(23.5, 6.0, vPosM.y);
-        float baseWash = smoothstep(8.8, 4.3, vPosM.y) * step(3.8, vPosM.y);
-        // Solo sobre superficies opacas (no vidrio brillante)
+        // 1. Luz clave arquitectónica + rim de silueta (realza ladrillo, molduras 3D y relieves PBR)
+        vec3 keyDirEC = normalize(czm_viewRotation * vec3(0.45, -0.72, 0.52));
+        float keyDiff = max(0.0, dot(nEC, keyDirEC)) * 0.60 + 0.40;
+        vec3 heroFill = col * mix(vec3(1.14, 1.00, 0.88), vec3(0.24, 0.32, 0.48), uNight) * keyDiff * mix(0.78, 0.50, uNight);
+        vec3 rimGlow = mix(vec3(1.0, 0.88, 0.72), vec3(0.32, 0.55, 0.95), uNight) * fresnel * mix(0.35, 0.55, uNight);
+
+        // 2. Bañadores verticales cálidos (2900K) en machones + zócalo de plazoleta + cornisa/torre
+        float pierWave = pow(0.5 + 0.5 * cos((vPosM.x + vPosM.z) * 1.45), 2.2);
+        float heightFade = smoothstep(3.8, 5.2, vPosM.y) * smoothstep(24.5, 6.0, vPosM.y);
+        float baseWash = smoothstep(9.5, 4.0, vPosM.y) * step(3.6, vPosM.y);
+        float eaveGlow = (smoothstep(18.0, 21.5, vPosM.y) * smoothstep(25.5, 22.0, vPosM.y))
+                       + smoothstep(26.0, 29.5, vPosM.y) * 0.9;
         float esOpaco = step(0.18, material.roughness);
-        vec3 warmBeam = vec3(1.0, 0.62, 0.24) * col * esOpaco * (
-          pierWave * heightFade * mix(0.28, 0.95, uNight) +
-          baseWash * mix(0.42, 1.15, uNight)
+        vec3 warmColor = vec3(1.0, 0.64, 0.26);
+        vec3 warmBeam = warmColor * col * esOpaco * (
+          pierWave * heightFade * mix(0.38, 1.45, uNight) +
+          baseWash * mix(0.48, 1.55, uNight) +
+          eaveGlow * mix(0.22, 1.10, uNight)
         );
 
-        // 3. Calidez sutil en ventanas (vidrio con reflejo y vida interior)
+        // 3. Calidez interior en habitaciones y ventanales
         float esVidrio = 1.0 - esOpaco;
         float winSeed = fract(sin(dot(floor(vec2(vPosM.x + vPosM.z, vPosM.y) * 0.32), vec2(12.9898, 78.233))) * 43758.5453);
-        float winOn = step(0.42, winSeed);
-        vec3 winGlow = vec3(1.0, 0.72, 0.38) * esVidrio * winOn * mix(0.12, 1.35, uNight);
+        float winOn = step(0.38, winSeed);
+        vec3 winGlow = vec3(1.0, 0.76, 0.42) * esVidrio * winOn * mix(0.18, 1.65, uNight);
 
-        material.diffuse = col * mix(1.12, 0.42, uNight) * (1.0 - hz);
-        material.emissive = (material.emissive + heroFill + col * skyFill * 0.22 + warmBeam + winGlow) * (1.0 - hz) + hlfHazeColor(uNight, uTarde) * hz;
+        material.diffuse = col * mix(1.22, 0.54, uNight) * (1.0 - hz);
+        material.emissive = (material.emissive + heroFill + rimGlow + col * skyFill * 0.26 + warmBeam + winGlow) * (1.0 - hz) + hlfHazeColor(uNight, uTarde) * hz;
       }
     `,
   });

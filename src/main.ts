@@ -376,6 +376,8 @@ function initRevit(): Promise<void> {
     revit = await loadRevitHotel(viewer, site.matrix);
     if (!revit) return;
     revit.setNight(currentNight);
+    // el bloque viejo que reemplaza el Revit se retira desde la carga (no solo al animar)
+    site.setRevitBlocks(revit.bloques, revit.huella);
     pisosPanel = createPisosPanel(revit, (i) => {
       if (!revit) return;
       stopOrbit();

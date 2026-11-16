@@ -156,12 +156,13 @@ export async function loadSite(
   const HOTEL: [number, number] = [-236, 330];
   const list: SectionInfo[] = [];
   for (const s of edif.secciones) {
+    const isHotel = s.key === 'Hotel';
     list.push({
       key: s.key,
-      file: s.file,
-      kind: 'edificios',
-      label: s.key === 'Hotel' ? 'Hotel La Fontana' : `Edificaciones · sector ${s.key}`,
-      dist: s.key === 'Hotel' ? -2 : Math.hypot(s.c[0] - HOTEL[0], s.c[1] - HOTEL[1]),
+      file: isHotel ? 'hotel_fachadas.glb' : s.file,
+      kind: isHotel ? 'cubierta_pbr' : 'edificios',
+      label: isHotel ? 'Hotel La Fontana 3D' : `Edificaciones · sector ${s.key}`,
+      dist: isHotel ? -2 : Math.hypot(s.c[0] - HOTEL[0], s.c[1] - HOTEL[1]),
     });
   }
   list.push({ key: 'hotel_cubiertas', file: 'hotel_cubiertas.glb', kind: 'cubierta', label: 'Cubiertas del hotel', dist: -1 });

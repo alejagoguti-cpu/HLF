@@ -176,12 +176,9 @@ html, body {
   gap: 24px;
   margin-bottom: 14px;
 }
-.logo-baco { width: 78px; height: 78px; }
-.logo-sep { width: 1px; height: 62px; background: rgba(29, 32, 36, 0.18); }
-.logo-estelar { display: grid; justify-items: center; gap: 5px; color: #13447e; }
-.logo-estelar svg { width: 58px; height: 58px; }
-.logo-estelar strong { font-size: 15px; font-weight: 800; letter-spacing: 0.08em; line-height: 1; }
-.logo-estelar sup { font-size: 8px; font-weight: 600; }
+.logo-baco { width: 82px; height: 82px; object-fit: contain; mix-blend-mode: multiply; }
+.logo-sep { width: 1px; height: 64px; background: rgba(29, 32, 36, 0.18); }
+.logo-estelar { width: 82px; height: 82px; object-fit: contain; mix-blend-mode: multiply; }
 
 #loading h2 {
   margin: 0;

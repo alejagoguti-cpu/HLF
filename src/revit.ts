@@ -16,13 +16,9 @@ interface Manifest { niveles: NivelInfo[]; caja: [number, number, number, number
 
 interface Nivel extends NivelInfo {
   model: Cesium.Model;
-  shader: Cesium.CustomShader;
-  /** desplazamiento vertical (m) y opacidad actuales, y la animación en curso */
   off: number;
-  alpha: number;
-  anim: { o0: number; o1: number; a0: number; a1: number; start: number; dur: number } | null;
   shown: boolean;
-  target: number;
+  anim: { o0: number; o1: number; start: number; dur: number; hideAtEnd?: boolean } | null;
 }
 
 export interface RevitHotel {
@@ -72,10 +68,8 @@ async function pixels(url: string, fallback: [number, number, number]): Promise<
 
 function revitShader(ladrillo: Cesium.TextureUniform, teja: Cesium.TextureUniform): Cesium.CustomShader {
   return new Cesium.CustomShader({
-    translucencyMode: Cesium.CustomShaderTranslucencyMode.TRANSLUCENT,
     uniforms: {
       uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
-      uAlpha: { type: Cesium.UniformType.FLOAT, value: 1 },
       uLadrillo: { type: Cesium.UniformType.SAMPLER_2D, value: ladrillo },
       uTeja: { type: Cesium.UniformType.SAMPLER_2D, value: teja },
     },
@@ -193,7 +187,7 @@ function revitShader(ladrillo: Cesium.TextureUniform, teja: Cesium.TextureUnifor
           material.roughness = rough;
           material.specular = spec;
           material.emissive = col * 0.28 * (1.0 - uNight);
-          material.alpha = uAlpha;
+          
           return;
         } else {
           col = vec3(0.52, 0.50, 0.47) * (0.92 + 0.14 * rn(vRP.xz * 1.5 + vRP.y)); // columnas, escaleras y vigas: concreto
@@ -202,7 +196,7 @@ function revitShader(ladrillo: Cesium.TextureUniform, teja: Cesium.TextureUnifor
         material.roughness = rough;
         material.specular = spec;
         material.emissive = col * 0.14 * (1.0 - uNight);
-        material.alpha = uAlpha;
+        
       }
     `,
   });
@@ -216,11 +210,11 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
   } catch {
     return null;
   }
-  const [ladrillo, teja] = await Promise.all([pixels(base + 'tex_ladrillo_hlf.webp', [190, 112, 74]), pixels(base + 'tex_teja.webp', [90, 52, 28])]);
+    const [ladrillo, teja] = await Promise.all([pixels(base + 'tex_ladrillo_hlf.webp', [190, 112, 74]), pixels(base + 'tex_teja.webp', [90, 52, 28])]);
+  const shader = revitShader(ladrillo, teja);
   const niveles: Nivel[] = [];
   for (const info of man.niveles) {
     try {
-      const shader = revitShader(ladrillo, teja);
       const model = await Cesium.Model.fromGltfAsync({
         url: base + info.file,
         modelMatrix: matrix,
@@ -233,30 +227,18 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
       model.customShader = shader;
       model.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(0.45, 0.25);
       viewer.scene.primitives.add(model);
-      niveles.push({ ...info, model, shader, off: 0, alpha: 1, anim: null, shown: false, target: 0 });
+      niveles.push({ ...info, model, off: 0, shown: false, anim: null });
     } catch (err) {
       console.warn('Nivel de Revit no cargado', info.file, err);
     }
   }
   if (!niveles.length) return null;
 
-  /*
-   * Milhoja: cada piso baja solo unos metros sobre el de abajo y aparece con un fundido;
-   * entra el siguiente cuando el anterior ya va asentándose. Movimiento por tiempo (no por cuadro),
-   * con curva suave de salida, para que se vea fluido aunque la página siga cargando.
-   */
-  const DROP = 5.5;      // m que baja cada piso al entrar
   const scratch = new Cesium.Matrix4();
   const place = (n: Nivel): void => {
     const t = Cesium.Matrix4.fromTranslation(new Cesium.Cartesian3(0, 0, n.off), scratch);
     n.model.modelMatrix = Cesium.Matrix4.multiply(matrix, t, new Cesium.Matrix4());
-    const a = Math.max(0, Math.min(1, n.alpha));
-    n.shader.setUniform('uAlpha', a);
-    n.model.show = a > 0.005;
-  };
-  const anim = (n: Nivel, o1: number, a1: number, start: number, dur: number) => {
-    n.anim = { o0: n.off, o1, a0: n.alpha, a1, start, dur };
-    n.target = o1;
+    n.model.show = n.shown;
   };
   const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
 
@@ -271,32 +253,32 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
     play() {
       api.visible = true;
       api.abierto = -1;
-      const t0 = performance.now();
-      niveles.forEach((n, k) => {
-        n.off = DROP;
-        n.alpha = 0;
+      for (const n of niveles) {
+        n.off = 0;
+        n.shown = true;
+        n.anim = null;
         place(n);
-        anim(n, 0, 1, t0 + k * 250, 750);
-      });
+      }
     },
     openAt(i: number) {
       api.visible = true;
       api.abierto = i;
       const now = performance.now();
       let k = 0;
-      // Los pisos de arriba se levantan con fuerza escalonadamente (efecto exploded view / división nítida)
-      // Cada nivel sube progresivamente más alto para que la separación del edificio sea muy visible
+      // Los pisos de arriba se elevan visiblemente en 3D sólido y al final se ocultan
       for (const n of [...niveles].reverse()) {
         if (n.i > i) {
-          const liftHeight = 24 + (n.i - i) * 8.0;
-          n.alpha = 1;
-          anim(n, liftHeight, 0, now + k++ * 80, 1300);
+          const liftHeight = 22 + (n.i - i) * 7.5;
+          n.shown = true;
+          place(n);
+          n.anim = { o0: n.off, o1: liftHeight, start: now + k++ * 70, dur: 900, hideAtEnd: true };
         }
       }
       for (const n of niveles) {
         if (n.i <= i) {
-          n.alpha = 1;
-          anim(n, 0, 1, now, 800);
+          n.shown = true;
+          if (n.off !== 0) n.anim = { o0: n.off, o1: 0, start: now, dur: 600 };
+          place(n);
         }
       }
     },
@@ -305,18 +287,22 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
       api.abierto = -1;
       const now = performance.now();
       let k = 0;
-      // Bajan de arriba hacia abajo encajando con precisión en su sitio original
       for (const n of niveles) {
-        if (n.off !== 0 || n.alpha < 1) anim(n, 0, 1, now + k++ * 80, 900);
+        n.shown = true;
+        if (n.off !== 0) {
+          n.anim = { o0: n.off, o1: 0, start: now + k++ * 60, dur: 800 };
+        } else {
+          place(n);
+        }
       }
     },
     hide() {
       api.visible = false;
       api.abierto = -1;
-      for (const n of niveles) { n.anim = null; n.off = 0; n.alpha = 0; place(n); }
+      for (const n of niveles) { n.anim = null; n.off = 0; n.shown = false; place(n); }
     },
     setNight(v: number) {
-      for (const n of niveles) n.shader.setUniform('uNight', v);
+      shader.setUniform('uNight', v);
     },
     update(_dt: number, now: number) {
       if (!api.visible) return;
@@ -326,16 +312,11 @@ export async function loadRevitHotel(viewer: Cesium.Viewer, matrix: Cesium.Matri
         const t = Math.min(1, (now - a.start) / a.dur);
         const e = easeOut(t);
         n.off = a.o0 + (a.o1 - a.o0) * e;
-        if (a.a1 < a.a0) {
-          // Al dividirse: se levantan manteniéndose 100% visibles durante el 60% del movimiento,
-          // y solo se desvanecen suavemente en el tramo final alto
-          const fadeT = Math.max(0, (t - 0.6) / 0.4);
-          n.alpha = a.a0 + (a.a1 - a.a0) * (fadeT * fadeT);
-        } else {
-          n.alpha = a.a0 + (a.a1 - a.a0) * Math.min(1, t * 1.5);
+        if (t >= 1) {
+          if (a.hideAtEnd) n.shown = false;
+          n.anim = null;
         }
         place(n);
-        if (t >= 1) n.anim = null;
       }
     },
   };
@@ -375,7 +356,7 @@ export function createPisosPanel(hotel: RevitHotel, onPick: (i: number) => void)
     el.appendChild(b);
   };
   add(-1, 'Edificio completo', '');
-  for (const n of [...hotel.niveles].reverse()) add(n.i, n.nombre.charAt(0) + n.nombre.slice(1).toLowerCase(), `N${n.i + 1}`);
+  add(1, 'Piso 2', 'N2');
   document.body.appendChild(el);
   const mark = (i: number) => buttons.forEach((b, k) => b.classList.toggle('on', k === i));
   mark(-1);

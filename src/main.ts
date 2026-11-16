@@ -143,7 +143,7 @@ viewer.clock.currentTime = Cesium.JulianDate.fromIso8601('2026-06-21T16:50:00-05
 
 const cam = new ArchCamera(viewer);
 const placeWorld = (key: keyof typeof PLACES) => enuToWorld(PLACES[key].e, PLACES[key].n, PLACES[key].u);
-cam.flyTo({ pivot: enuToWorld(-110, 150, 10), heading: -0.75, pitch: -0.60, range: 1750 }, 0);
+cam.flyTo({ pivot: enuToWorld(-228, 305, 12), heading: 0.55, pitch: -0.42, range: 240 }, 0);
 cam.groundHeight = (c) => scene.globe.getHeight(c);
 
 /* ------------------------------------------------------------ luz / hora */
@@ -362,22 +362,8 @@ async function autoPlayHotel(): Promise<void> {
   await initRevit();
   if (!site || !revit) return;
   stopOrbit();
-
-  // Vuelo cinematográfico fluido y continuo hacia el Hotel La Fontana en 3.8s (sin micro-tirones)
-  cam.flyTo(
-    {
-      pivot: enuToWorld(-228, 305, 12),
-      heading: -0.63,
-      pitch: -0.45,
-      range: 275,
-    },
-    3.8,
-  );
-
-  setTimeout(() => {
-    arrancarHotel();
-    site?.startBackground();
-  }, 3800);
+  arrancarHotel();
+  site?.startBackground();
 }
 function arrancarHotel(): void {
   if (!site) return;
@@ -601,10 +587,8 @@ async function boot(): Promise<void> {
   applyLook(lookStudio.getPreset(activeId));
   applyQuality();
 
-  // Colocar la cámara en la vista inicial detrás del telón para que carguen las texturas y tiles exactos
-  setView('general', 0);
-  // detrás del telón la cámara espera en el plano de contexto donde empieza la transición
-  cam.flyTo({ pivot: enuToWorld(-110, 150, 10), heading: -0.75, pitch: -0.62, range: 1750 }, 0);
+  // La cámara se posiciona directamente en el encuadre aprobado del Hotel La Fontana
+  cam.flyTo({ pivot: enuToWorld(-228, 305, 12), heading: 0.55, pitch: -0.42, range: 240 }, 0);
 
   // no se entra hasta que esté todo cargado: hotel (Revit), ciudad completa, vegetación y tráfico
   site.startBackground();

@@ -117,7 +117,8 @@ export function createMasterplanPins(
     return { pin, el, worldPos };
   });
 
-  let isVisible = true;
+  let isVisible = false;
+  container.style.display = 'none';
   const scratchCoord = new Cesium.Cartesian2();
 
   function update(): void {

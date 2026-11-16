@@ -367,7 +367,7 @@ async function autoPlayHotel(): Promise<void> {
   const P1 = { e: -175, n: 235, u: 10, h: -0.05, p: -0.5, r: 640 };
   // llegada: el hotel completo en cuadro, corrido a la derecha para que los paneles no lo tapen
   void c;
-  const P2 = { e: PLACES.hotel.e - 34, n: PLACES.hotel.n + 21, u: 12, h: 0.55, p: -0.48, r: 360 };
+  const P2 = { e: -228, n: 305, u: 12, h: -0.63, p: -0.45, r: 275 }; // encuadre aprobado (fachada del Revit de frente)
   const DUR = 10500;
   let lanzado = false;
   await new Promise<void>((done) => {

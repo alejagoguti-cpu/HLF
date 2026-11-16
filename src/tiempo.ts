@@ -16,12 +16,12 @@ export type Clima = 'sol' | 'nublado' | 'lluvia';
 /** Filtros de imagen (como en una cámara): se aplican encima de la luz de la hora y el clima. */
 export type Filtro = 'planos' | 'natural' | 'calido' | 'claro' | 'cine' | 'dramatico' | 'panel';
 export const FILTROS: Record<Exclude<Filtro, 'panel'>, { nombre: string; o: Partial<LookParams>; sol?: number }> = {
-  planos:    { nombre: 'Planos finales', o: { exposure: 1.03, contrast: 0.16, saturation: 1.00, tintColor: '#ffffff', vignette: 0.06, shadowDarkness: 0.44, bloomBrightness: -0.72, skyFill: 0.30, groundFill: 0.16, skyZenith: '#3a6ea5', skyHorizon: '#c8dff5', hazeAmount: 0.02, hazeStart: 2000 }, sol: 1.0 },
-  natural:   { nombre: 'Natural',        o: { exposure: 1.03, contrast: 0.16, saturation: 1.00, tintColor: '#ffffff', vignette: 0.06, shadowDarkness: 0.44, bloomBrightness: -0.72 } },
-  calido:    { nombre: 'Cálido',         o: { exposure: 1.04, contrast: 0.18, saturation: 1.04, tintColor: '#fff8ed', vignette: 0.08, shadowDarkness: 0.43, bloomBrightness: -0.68 }, sol: 1.02 },
-  claro:     { nombre: 'Render claro',   o: { exposure: 1.10, contrast: 0.14, saturation: 0.98, tintColor: '#fbfcff', vignette: 0.04, shadowDarkness: 0.36, bloomBrightness: -0.75 } },
-  cine:      { nombre: 'Cinematográfico', o: { exposure: 1.00, contrast: 0.28, saturation: 0.96, tintColor: '#f7efe4', vignette: 0.22, shadowDarkness: 0.48, bloomBrightness: -0.60 } },
-  dramatico: { nombre: 'Dramático',      o: { exposure: 0.96, contrast: 0.36, saturation: 1.02, tintColor: '#fff6ec', vignette: 0.28, shadowDarkness: 0.54, bloomBrightness: -0.55 }, sol: 1.06 },
+  planos:    { nombre: 'Planos finales', o: { exposure: 1.06, contrast: 0.18, saturation: 1.08, tintColor: '#fff8f0', vignette: 0.1, shadowDarkness: 0.36, bloomBrightness: -0.65, skyFill: 0.34, groundFill: 0.18, skyZenith: '#5f86b3', skyHorizon: '#d9dee0', hazeAmount: 0.06, hazeStart: 600 }, sol: 1.0 },
+  natural:   { nombre: 'Natural',        o: { exposure: 1.04, contrast: 0.2, saturation: 1.05, tintColor: '#ffffff', vignette: 0.18, shadowDarkness: 0.45, bloomBrightness: -0.6 } },
+  calido:    { nombre: 'Cálido',         o: { exposure: 1.06, contrast: 0.24, saturation: 1.14, tintColor: '#fff0dc', vignette: 0.25, shadowDarkness: 0.42, bloomBrightness: -0.5 }, sol: 1.05 },
+  claro:     { nombre: 'Render claro',   o: { exposure: 1.16, contrast: 0.1, saturation: 0.96, tintColor: '#fbfcff', vignette: 0.08, shadowDarkness: 0.28, bloomBrightness: -0.7 } },
+  cine:      { nombre: 'Cinematográfico', o: { exposure: 0.98, contrast: 0.42, saturation: 0.86, tintColor: '#f3ece3', vignette: 0.55, shadowDarkness: 0.5, bloomBrightness: -0.45 } },
+  dramatico: { nombre: 'Dramático',      o: { exposure: 0.94, contrast: 0.55, saturation: 1.1, tintColor: '#fff6ec', vignette: 0.62, shadowDarkness: 0.62, bloomBrightness: -0.4 }, sol: 1.12 },
 };
 export function aplicarFiltro(look: LookParams, f: Filtro, night: number): LookParams {
   if (f === 'panel') return look;

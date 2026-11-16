@@ -125,12 +125,13 @@ let site: Site | null = null;
 let quality = integrated || matchMedia("(pointer: coarse)").matches ? 0.5 : 1;
 function applyQuality(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  viewer.resolutionScale = dpr * (quality >= 1 ? 1 : quality >= 0.5 ? 0.8 : 0.62);
+  // nunca por debajo de la resolución nativa de la pantalla (si no, se ve pixeleado)
+  viewer.resolutionScale = Math.max(1, dpr * (quality >= 1 ? 1 : quality >= 0.5 ? 0.9 : 0.75));
   sm.size = quality >= 1 ? 4096 : quality >= 0.5 ? 2048 : 1024;
   sm.softShadows = quality >= 0.5;
   ao.enabled = quality >= 1;
   bloom.enabled = quality >= 0.5;
-  scene.msaaSamples = quality >= 1 ? 4 : 1;
+  scene.msaaSamples = quality >= 0.5 ? 4 : 2; // bordes y hojas sin escalones
   viewer.shadows = quality >= 0.5;
   if (site?.tileset) site.tileset.maximumScreenSpaceError = quality >= 1 ? 8 : quality >= 0.5 ? 12 : 20;
 }
@@ -337,7 +338,9 @@ async function autoPlayHotel(): Promise<void> {
   // todo con una curva de velocidad suave de principio a fin: sin paradas entre tramos)
   const P0 = { e: -110, n: 150, u: 10, h: -0.75, p: -0.62, r: 1750 };
   const P1 = { e: -175, n: 235, u: 10, h: -0.05, p: -0.5, r: 640 };
-  const P2 = { e: (c[0] + c[2]) / 2, n: (c[1] + c[3]) / 2, u: 12, h: 0.55, p: -0.4, r: 230 };
+  // llegada: el hotel completo en cuadro, corrido a la derecha para que los paneles no lo tapen
+  void c;
+  const P2 = { e: PLACES.hotel.e - 34, n: PLACES.hotel.n + 21, u: 12, h: 0.55, p: -0.48, r: 360 };
   const DUR = 10500;
   let lanzado = false;
   await new Promise<void>((done) => {
@@ -364,7 +367,7 @@ function arrancarHotel(): void {
   const flyTo = cam.flyTo.bind(cam);
   cam.flyTo = () => {};
   try {
-    if (h) select(h);
+    if (h) { select(h); if (card) card.hidden = true; }
     else playRevit();
   } finally {
     cam.flyTo = flyTo;

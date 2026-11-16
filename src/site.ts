@@ -202,18 +202,28 @@ export async function loadSite(
   const queue: SectionInfo[] = [...ground, ...list.slice(0, 4), ...trees3d, ...trees.slice(0, 3), ...list.slice(4, 9), ...trees.slice(3), ...list.slice(9)];
 
   const fShader = facadeShader();
-  // árboles 3D escaneados: color de su textura con luz envolvente (sin metal ni especular del escaneo)
+  // árboles 3D escaneados con la luz de planosfinales: cielo claro arriba, rebote cálido abajo,
+  // sol directo y luz que atraviesa la hoja (sin quedarse negros en la sombra)
   const arbol3dShader = new Cesium.CustomShader({
+    lightingModel: Cesium.LightingModel.UNLIT,
     uniforms: { uNight: { type: Cesium.UniformType.FLOAT, value: 0 } },
     fragmentShaderText: `
       void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
         vec3 c = material.baseColor.rgb;
-        float l = dot(c, vec3(0.3333));
-        if (l < 0.02) c = vec3(0.16, 0.24, 0.10);
-        material.diffuse = c * mix(1.05, 0.3, uNight);
-        material.specular = vec3(0.02);
-        material.roughness = 0.9;
-        material.emissive = c * 0.22 * (1.0 - uNight);
+        if (dot(c, vec3(0.3333)) < 0.02) c = vec3(0.20, 0.30, 0.12);
+        vec3 n = normalize(fsInput.attributes.normalEC);
+        if (dot(n, -fsInput.attributes.positionEC) < 0.0) n = -n;
+        vec3 pW = (czm_inverseView * vec4(fsInput.attributes.positionEC, 1.0)).xyz;
+        vec3 up = normalize(czm_viewRotation * normalize(pW));
+        vec3 sunDir = normalize(czm_lightDirectionEC);
+        float hemi = dot(n, up) * 0.5 + 0.5;
+        vec3 amb = mix(vec3(0.60, 0.57, 0.50), vec3(0.89, 0.93, 0.96), hemi) * 0.95;
+        float nl = max(dot(n, sunDir), 0.0);
+        float trans = max(dot(-n, sunDir), 0.0) * 0.35;
+        vec3 sol = vec3(1.0, 0.94, 0.86) * (nl * 0.85 + trans);
+        vec3 col = c * (amb + sol) * 1.08;
+        if (any(isnan(col))) col = c;
+        material.diffuse = mix(col, c * vec3(0.18, 0.22, 0.32), uNight);
       }
     `,
   });

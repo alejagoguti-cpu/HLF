@@ -23,7 +23,7 @@
     </span>
   </header>
 
-  <div class="clock">
+  <div class="clock" hidden>
     <span id="clockLabel">10:10</span>
   </div>
 
@@ -40,12 +40,12 @@
   </aside>
 
   <nav class="dock">
-    <div class="group" role="group" aria-label="Hora del día">
+    <div class="group" role="group" aria-label="Hora del día" hidden style="display:none">
       <button data-light="dia" class="on">Día</button>
       <button data-light="tarde">Tarde</button>
       <button data-light="noche">Noche</button>
     </div>
-    <span class="sep" aria-hidden="true"></span>
+    <span class="sep" aria-hidden="true" style="display:none"></span>
     <div class="group" role="group" aria-label="Vistas">
       <button id="btnHome">Vista general</button>
       <button id="btnAerial">Aérea</button>

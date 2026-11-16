@@ -117,83 +117,20 @@ export function facadeShader(): Cesium.CustomShader {
         }
 
         if (tipo > 0.9) {
-          /* ---------- cubierta arquitectónica masterplan: gravilla técnica, paneles solares, HVAC y pretiles ---------- */
-          vec3 gravaOsc = mix(vec3(0.24, 0.25, 0.26), vec3(0.32, 0.33, 0.34), rnd);
-          vec3 gravaClara = mix(vec3(0.36, 0.36, 0.35), vec3(0.44, 0.43, 0.42), rnd2);
-          vec3 manto = mix(vec3(0.18, 0.19, 0.20), vec3(0.26, 0.27, 0.28), fract(rnd * 4.31));
-          vec3 barro = mix(vec3(0.55, 0.35, 0.26), vec3(0.65, 0.42, 0.32), rnd2);
-
-          float esTeja = step(pisos, 2.5) * step(0.60, fract(rnd * 3.17));
-          col = mix(gravaOsc, gravaClara, step(0.45, fract(rnd * 7.31)));
-          col = mix(col, manto, step(0.72, fract(rnd * 11.13)));
+          /* ---------- cubierta plana: gris claro, como la losa real vista desde el aire ---------- */
+          vec3 losa = mix(vec3(0.66, 0.64, 0.59), vec3(0.78, 0.76, 0.71), rnd2);
+          vec3 manto = mix(vec3(0.56, 0.55, 0.52), vec3(0.66, 0.64, 0.60), rnd);
+          vec3 barro = mix(vec3(0.62, 0.42, 0.33), vec3(0.70, 0.49, 0.38), rnd2);
+          col = mix(losa, manto, step(0.62, fract(rnd * 7.31)));
+          float esTeja = step(pisos, 2.5) * step(0.55, fract(rnd * 3.17));
           col = mix(col, barro, esTeja);
-
-          // Textura de grano de gravilla y desgaste a diferentes escalas
-          col *= 0.88 + 0.15 * vnoise(uv * 0.45) + 0.08 * vnoise(uv * 2.8);
-
-          // Juntas de impermeabilización y pasarelas de mantenimiento
-          vec2 gridRoof = fract(uv / 4.5);
-          float junta = smoothstep(0.04, 0.0, abs(gridRoof.x - 0.5) - 0.47) + smoothstep(0.04, 0.0, abs(gridRoof.y - 0.5) - 0.47);
-          col = mix(col, col * 0.70, clamp(junta, 0.0, 1.0) * (1.0 - esTeja));
-
-          // 1. PANELES SOLARES FOTOVOLTAICOS (Photovoltaic Solar Arrays)
-          float tieneSolar = step(3.0, pisos) * (1.0 - esTeja) * step(0.30, fract(rnd * 17.19));
-          if (tieneSolar > 0.5) {
-            vec2 pUV = uv * 0.45;
-            vec2 sCell = fract(pUV);
-            vec2 sId = floor(pUV);
-            float hayBateria = step(0.25, h21(sId + rnd * 5.0));
-            if (hayBateria > 0.5) {
-              vec2 panelRep = fract(uv * vec2(0.55, 0.95)); // celdas de 1.8m x 1.0m
-              float bordePanel = smoothstep(0.05, 0.08, panelRep.x) * (1.0 - smoothstep(0.92, 0.95, panelRep.x)) *
-                                 smoothstep(0.06, 0.09, panelRep.y) * (1.0 - smoothstep(0.91, 0.94, panelRep.y));
-              
-              vec3 cSilicio = vec3(0.04, 0.09, 0.20) * (0.85 + 0.25 * fract(panelRep.y * 6.0));
-              vec3 cMarcoAlum = vec3(0.70, 0.72, 0.76);
-              vec3 cPanel = mix(cMarcoAlum, cSilicio, bordePanel);
-              float sombraFila = smoothstep(0.0, 0.12, panelRep.y);
-              cPanel *= 0.72 + 0.28 * sombraFila;
-
-              col = mix(col, cPanel, 0.94);
-              rough = mix(rough, mix(0.35, 0.08, bordePanel), 0.94);
-              spec = mix(spec, vec3(0.20, 0.26, 0.35), bordePanel * 0.94);
-            }
+          col *= 0.90 + 0.16 * vnoise(uv * 0.3);
+          if (near > 0.0) {
+            float junta = smoothstep(0.03, 0.0, abs(fract(uv.x / 6.0 + rnd) - 0.5) - 0.47) * (1.0 - esTeja);
+            float hilada = smoothstep(0.0, 0.5, abs(fract((uv.x * (0.3 + rnd2) + uv.y) * 3.2) - 0.5));
+            col *= 1.0 - near * (0.10 * junta + 0.14 * esTeja * (1.0 - hilada));
+            col *= 1.0 - near * 0.06 * (vnoise(uv * 3.1) - 0.5);
           }
-
-          // 2. EQUIPOS TÉCNICOS HVAC, DUCTOS Y CAJAS DE ASCENSOR
-          float tieneHVAC = step(3.5, pisos) * (1.0 - esTeja);
-          if (tieneHVAC > 0.5) {
-            vec2 hvacUV = uv * 0.22 + rnd * 13.0;
-            vec2 hId = floor(hvacUV);
-            vec2 hF = fract(hvacUV);
-            float hBoxRnd = h21(hId + 31.7);
-            if (hBoxRnd > 0.65) {
-              vec2 bSize = vec2(0.35, 0.28);
-              float enCaja = step(0.5 - bSize.x, hF.x) * step(hF.x, 0.5 + bSize.x) *
-                             step(0.5 - bSize.y, hF.y) * step(hF.y, 0.5 + bSize.y);
-              float rejilla = step(0.5, fract(hF.x * 24.0));
-              vec3 cMetalHVAC = mix(vec3(0.52, 0.54, 0.58), vec3(0.20, 0.21, 0.22), rejilla * 0.65);
-              float enSombra = step(0.5 - bSize.x + 0.08, hF.x) * step(hF.x, 0.5 + bSize.x + 0.14) *
-                               step(0.5 - bSize.y - 0.12, hF.y) * step(hF.y, 0.5 + bSize.y) * (1.0 - enCaja);
-              col = mix(col, col * 0.42, enSombra * 0.88);
-              col = mix(col, cMetalHVAC, enCaja);
-              rough = mix(rough, 0.38, enCaja);
-              spec = mix(spec, vec3(0.14), enCaja);
-            }
-          }
-
-          // 3. TECHOS VERDES / CUBIERTAS VEGETALES SEDUM
-          float tieneSedum = step(3.0, pisos) * (1.0 - esTeja) * step(0.78, fract(rnd * 29.3));
-          if (tieneSedum > 0.5) {
-            vec2 sedumF = fract(uv * 0.35 + rnd * 7.0);
-            float enJardin = step(0.15, sedumF.x) * step(sedumF.x, 0.85) * step(0.15, sedumF.y) * step(sedumF.y, 0.85);
-            vec3 cSedum = mix(vec3(0.20, 0.32, 0.15), vec3(0.32, 0.44, 0.20), vnoise(uv * 2.0));
-            cSedum = mix(cSedum, vec3(0.46, 0.36, 0.20), 0.25 * vnoise(uv * 5.0));
-            col = mix(col, cSedum, enJardin * 0.95);
-            rough = mix(rough, 0.95, enJardin);
-          }
-
-          // Si hay ortofoto aérea nítida, se modula con el relieve técnico
           if (uAerialOn > 0.5) {
             vec3 foto = hlfAerial(uv + uLean * pisos * 3.0);
             float fotoLum = dot(foto, vec3(0.3333));

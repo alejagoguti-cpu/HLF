@@ -174,6 +174,7 @@ export async function loadSite(
   list.push({ key: 'torres_vecinas', file: 'torres_vecinas.glb', kind: 'cubierta_pbr', label: 'Torres vecinas PBR', dist: -0.6 });
   list.push({ key: 'esquina_ak15', file: 'esquina_ak15.glb', kind: 'cubierta_pbr', label: 'Esquina Ak 15 PBR', dist: -0.55 });
   list.push({ key: 'metro127', file: 'metro127.glb', kind: 'cubierta_pbr', label: 'Metro 127 · Sonesta PBR', dist: -0.52 });
+  list.push({ key: 'clinica127', file: 'clinica127.glb', kind: 'cubierta_pbr', label: 'Clínica 127 Colsubsidio PBR', dist: -0.51 });
   list.push({ key: 'unicentro_cubierta', file: 'unicentro_cubierta.glb', kind: 'cubierta_pbr', label: 'Cubierta · Unicentro', dist: -0.5 });
   list.sort((a, b) => a.dist - b.dist);
   const CAPA: Record<string, [number, string]> = {

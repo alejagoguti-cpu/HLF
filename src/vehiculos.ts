@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import { ASSETS } from './config';
+import { createRealisticTrafficLight, buildRoadMarkingsAndSigns, type RealisticTrafficLight } from './road-props';
 
 /**
  * Tráfico y peatones: vehículos suaves (sedán, SUV, taxi) sin colisiones,
@@ -31,8 +32,7 @@ interface Semaforo {
   n: number;
   u: number;
   faseOffset: number;
-  nsLuz: Cesium.Entity;
-  ewLuz: Cesium.Entity;
+  rig: RealisticTrafficLight;
   nsEstado: 'green' | 'yellow' | 'red';
   ewEstado: 'green' | 'yellow' | 'red';
 }
@@ -142,55 +142,30 @@ export async function createTrafico(
   }
   if (!libres.length) return null;
 
-  // Seleccionar hasta 6 intersecciones principales separadas por >= 90 m para semáforos
+  // Seleccionar hasta 6 intersecciones principales separadas por >= 90 m para semáforos y señalización
   crucesCandidatos.sort((a, b) => b.d - a.d);
   const semaforos: Semaforo[] = [];
-  const localToWorld = (e: number, n: number, u: number) =>
-    Cesium.Matrix4.multiplyByPoint(matrix, new Cesium.Cartesian3(e, n, u), new Cesium.Cartesian3());
 
   for (const c of crucesCandidatos) {
     if (semaforos.length >= 6) break;
     if (semaforos.some((s) => Math.hypot(s.e - c.e, s.n - c.n) < 90)) continue;
     const u = alt(c.e, c.n);
-    const pe = c.e + 6.5;
-    const pn = c.n + 6.5;
-    const pu = alt(pe, pn);
-
-    viewer.entities.add({
-      position: localToWorld(pe, pn, pu + 2.4),
-      cylinder: {
-        length: 4.8,
-        topRadius: 0.11,
-        bottomRadius: 0.14,
-        material: Cesium.Color.fromCssColorString('#242933'),
-      },
-    });
-    const nsLuz = viewer.entities.add({
-      position: localToWorld(pe - 0.6, pn, pu + 4.5),
-      box: {
-        dimensions: new Cesium.Cartesian3(0.45, 0.45, 1.05),
-        material: Cesium.Color.LIME,
-      },
-    });
-    const ewLuz = viewer.entities.add({
-      position: localToWorld(pe, pn - 0.6, pu + 4.5),
-      box: {
-        dimensions: new Cesium.Cartesian3(0.45, 0.45, 1.05),
-        material: Cesium.Color.RED,
-      },
-    });
+    const rig = createRealisticTrafficLight(viewer, matrix, c.e, c.n, alt);
+    rig.ns.setState('green');
+    rig.ew.setState('red');
 
     semaforos.push({
       e: c.e,
       n: c.n,
       u,
       faseOffset: semaforos.length * 4.5,
-      nsLuz,
-      ewLuz,
+      rig,
       nsEstado: 'green',
       ewEstado: 'red',
     });
   }
+
+  const senalizacion = buildRoadMarkingsAndSigns(viewer, matrix, semaforos, d, alt);
 
   const rnd = (() => {
     let s = 12345;
@@ -427,10 +402,8 @@ export async function createTrafico(
       for (const c of carros) if (c.model) c.model.show = v;
       for (const pk of parqueados) if (pk.model) pk.model.show = v;
       for (const p of peatones) if (p.model) p.model.show = v;
-      for (const s of semaforos) {
-        s.nsLuz.show = v;
-        s.ewLuz.show = v;
-      }
+      for (const s of semaforos) s.rig.setVisible(v);
+      senalizacion.setVisible(v);
     },
     update(dt: number) {
       if (!visible) return;
@@ -444,15 +417,11 @@ export async function createTrafico(
         const ew: Semaforo['ewEstado'] = cyc >= 12 && cyc < 22 ? 'green' : cyc >= 22 ? 'yellow' : 'red';
         if (ns !== s.nsEstado) {
           s.nsEstado = ns;
-          (s.nsLuz.box!.material as Cesium.ColorMaterialProperty).color = new Cesium.ConstantProperty(
-            ns === 'green' ? Cesium.Color.LIME : ns === 'yellow' ? Cesium.Color.YELLOW : Cesium.Color.RED,
-          );
+          s.rig.ns.setState(ns);
         }
         if (ew !== s.ewEstado) {
           s.ewEstado = ew;
-          (s.ewLuz.box!.material as Cesium.ColorMaterialProperty).color = new Cesium.ConstantProperty(
-            ew === 'green' ? Cesium.Color.LIME : ew === 'yellow' ? Cesium.Color.YELLOW : Cesium.Color.RED,
-          );
+          s.rig.ew.setState(ew);
         }
       }
 

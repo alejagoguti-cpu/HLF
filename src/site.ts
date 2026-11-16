@@ -30,7 +30,7 @@ export interface Building {
 interface SectionInfo {
   key: string;
   file: string;
-  kind: 'edificios' | 'arboles' | 'cubierta' | 'suelo';
+  kind: 'edificios' | 'arboles' | 'cubierta' | 'cubierta_pbr' | 'suelo';
   capa?: number;
   atlas?: string;
   marco?: number;
@@ -163,6 +163,7 @@ export async function loadSite(
     });
   }
   list.push({ key: 'hotel_cubiertas', file: 'hotel_cubiertas.glb', kind: 'cubierta', label: 'Cubiertas del hotel', dist: -1 });
+  list.push({ key: 'unicentro_cubierta', file: 'unicentro_cubierta.glb', kind: 'cubierta_pbr', label: 'Cubierta · Unicentro', dist: -0.5 });
   list.sort((a, b) => a.dist - b.dist);
   const CAPA: Record<string, [number, string]> = {
     Terreno: [0, 'Terreno'], Vias: [1, 'Vías'], Andenes: [2, 'Andenes'], Separadores: [3, 'Separadores'], Ciclorrutas: [4, 'Ciclorrutas'],
@@ -292,9 +293,11 @@ export async function loadSite(
         sh.setUniform('uHazeStart', hazeStart);
         tShaders.push(sh);
         model.customShader = sh;
-      } else model.customShader = fShader;
+      } else if (s.kind !== 'cubierta_pbr') model.customShader = fShader;
       // iluminación IBL para reflejos en vidrios y cubiertas
-      model.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(0.75, 0.45);
+      model.imageBasedLighting.imageBasedLightingFactor = s.kind === 'cubierta_pbr'
+        ? new Cesium.Cartesian2(0.85, 0.55)
+        : new Cesium.Cartesian2(0.75, 0.45);
       scene.primitives.add(model);
       if (s.kind === 'arboles') treeModels.push(model);
       await new Promise<void>((resolve) => {

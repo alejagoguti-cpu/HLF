@@ -326,6 +326,7 @@ export async function loadSite(
       await loadOne(queue[i]);
       await new Promise((r) => setTimeout(r, 60));
     }
+    await aerial;
   })();
 
   return {

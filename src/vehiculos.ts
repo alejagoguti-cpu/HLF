@@ -48,6 +48,7 @@ const CARRIL = 3.2;
 export interface Trafico {
   update(dt: number): void;
   setVisible(v: boolean): void;
+  ready: Promise<void>;
   count: number;
   debug(): number[][];
 }
@@ -322,7 +323,7 @@ export async function createTrafico(
   };
 
   // Cargar vehículos suaves y personas (con y sin perro)
-  (async () => {
+  const ready = (async () => {
     for (let i = 0; i < carros.length; i++) {
       const c = carros[i];
       const glb = c.tipo === 'taxi' ? 'carro_taxi.glb' : c.tipo === 'suv' ? 'carro_suv.glb' : 'carro.glb';
@@ -395,6 +396,7 @@ export async function createTrafico(
   const esAnden = (e: number, n: number) => d(e, n) === 0 && d(e + 4, n) + d(e - 4, n) + d(e, n + 4) + d(e, n - 4) > 0.5;
 
   return {
+    ready,
     count: total,
     debug: () => carros.map((c) => [Math.round(c.e), Math.round(c.n), +c.u.toFixed(1), c.model ? 1 : 0]),
     setVisible(v: boolean) {

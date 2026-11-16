@@ -425,14 +425,22 @@ const statusEl = $('status');
 const statusText = $('statusText');
 
 async function waitForSceneReady(): Promise<void> {
-  const deadline = performance.now() + 8000;
+  const deadline = performance.now() + 25000;
+  let stableSince = 0;
   while (performance.now() < deadline) {
     const globeOk = scene.globe.tilesLoaded;
     const tilesOk = !site?.tileset || site.tileset.tilesLoaded;
-    if (globeOk && tilesOk) break;
+    if (globeOk && tilesOk) {
+      if (!stableSince) stableSince = performance.now();
+      if (performance.now() - stableSince >= 600) break;
+    } else {
+      stableSince = 0;
+    }
     await new Promise((r) => setTimeout(r, 150));
   }
-  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  for (let i = 0; i < 8; i++) {
+    await new Promise((r) => requestAnimationFrame(r));
+  }
 }
 
 async function boot(): Promise<void> {
@@ -441,9 +449,9 @@ async function boot(): Promise<void> {
 
   site = await loadSite(
     viewer,
-    (label, ratio) => progress(label, 0.05 + ratio * 0.25),
+    (label, ratio) => progress(label, 0.05 + ratio * 0.20),
     (loaded, total, label) => {
-      progress(`Cargando secciones (${loaded}/${total}) · ${label}`, 0.30 + (loaded / Math.max(1, total)) * 0.50);
+      progress(`Cargando secciones (${loaded}/${total}) · ${label}`, 0.25 + (loaded / Math.max(1, total)) * 0.45);
       if (!statusEl || !statusText) return;
       statusEl.hidden = false;
       statusText.textContent = loaded < total ? `Cargando secciones ${loaded}/${total} · ${label}` : `Modelo completo · ${total} secciones`;
@@ -456,17 +464,19 @@ async function boot(): Promise<void> {
   applyLook(lookStudio.getPreset(activeId));
   applyQuality();
 
-  // Esperar a que todas las secciones, vehículos y render inicial estén listos antes de abrir
+  // Colocar la cámara en la vista inicial detrás del telón para que carguen las texturas y tiles exactos
+  setView('general', 0);
+
   await site.done;
-  progress('Cargando tráfico y parqueaderos...', 0.85);
+  progress('Cargando tráfico y parqueaderos...', 0.78);
   trafico = await createTrafico(viewer, site.matrix);
+  if (trafico) await trafico.ready;
   (window as unknown as { __ALL__?: boolean }).__ALL__ = true;
 
-  progress('Renderizando escena 3D...', 0.94);
+  progress('Renderizando texturas y 3D Tiles...', 0.90);
   await waitForSceneReady();
   progress('Listo', 1);
 
-  setView('general', 2.4);
   loadingEl.classList.add('done');
   setTimeout(() => loadingEl.remove(), 900);
   const hint = $('hint');

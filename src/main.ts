@@ -375,19 +375,21 @@ function select(b: Building | null): void {
   if (b.s !== 'Hotel') pisosPanel?.show(false);
   else if (revit?.visible) pisosPanel?.show(true);
 
-  const pos = b.r.map(([e, n]) => enuToWorld(e, n, 0, site!.matrix));
-  const hBase = 2572 + b.b - 0.5;
-  highlight = viewer.entities.add({
-    polygon: {
-      hierarchy: new Cesium.PolygonHierarchy(pos),
-      height: hBase,
-      extrudedHeight: hBase + b.h + 2.2,
-      material: Cesium.Color.fromCssColorString('#9dc4ea').withAlpha(0.2),
-      outline: true,
-      outlineColor: Cesium.Color.fromCssColorString('#d7ebff'),
-      shadows: Cesium.ShadowMode.DISABLED,
-    },
-  });
+  if (b.s !== 'Hotel') {
+    const pos = b.r.map(([e, n]) => enuToWorld(e, n, 0, site!.matrix));
+    const hBase = 2572 + b.b - 0.5;
+    highlight = viewer.entities.add({
+      polygon: {
+        hierarchy: new Cesium.PolygonHierarchy(pos),
+        height: hBase,
+        extrudedHeight: hBase + b.h + 2.2,
+        material: Cesium.Color.fromCssColorString('#9dc4ea').withAlpha(0.2),
+        outline: true,
+        outlineColor: Cesium.Color.fromCssColorString('#d7ebff'),
+        shadows: Cesium.ShadowMode.DISABLED,
+      },
+    });
+  }
 
   const hotel = b.s === 'Hotel';
   if (hotel && !wasHotel) {

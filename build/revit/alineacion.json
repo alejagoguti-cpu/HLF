@@ -1,7 +1,7 @@
 {
- "th": -4.4,
- "cx": -214.413,
- "cy": 283.446,
+ "th": 11.05,
+ "cx": -217.863,
+ "cy": 280.296,
  "rx": 17,
  "ry": 333,
  "z": 4.2,
@@ -14,5 +14,5 @@
   1383,
   2353
  ],
- "nota": "fachada sur 3 m al frente del bloque 375 para empalmar con las cubiertas vecinas"
+ "nota": "encajado en los bloques 375+1383+2353 sin invadir vecinos"
 }

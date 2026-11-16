@@ -1,6 +1,6 @@
 import * as Cesium from 'cesium';
 import { GEO, ASSETS } from './config';
-import { facadeShader, treeShader, cityShader, groundShader } from './shaders';
+import { facadeShader, treeShader, cityShader, groundShader, hotelPbrShader } from './shaders';
 
 /** Marco ENU en el origen de la georreferencia de Unreal. */
 export function siteMatrix(): Cesium.Matrix4 {
@@ -189,6 +189,7 @@ export async function loadSite(
   const queue: SectionInfo[] = [...ground, ...list.slice(0, 4), ...trees.slice(0, 3), ...list.slice(4, 9), ...trees.slice(3), ...list.slice(9)];
 
   const fShader = facadeShader();
+  const hShader = hotelPbrShader();
   const gShader = groundShader(base);
 
   /* ---------------- foto aérea real del sector (para el terreno y las cubiertas) ---------------- */
@@ -296,7 +297,8 @@ export async function loadSite(
         sh.setUniform('uHazeStart', hazeStart);
         tShaders.push(sh);
         model.customShader = sh;
-      } else if (s.kind !== 'cubierta_pbr') model.customShader = fShader;
+      } else if (s.key === 'Hotel') model.customShader = hShader;
+      else if (s.kind !== 'cubierta_pbr') model.customShader = fShader;
       // iluminación IBL para reflejos en vidrios y cubiertas
       model.imageBasedLighting.imageBasedLightingFactor = s.kind === 'cubierta_pbr'
         ? new Cesium.Cartesian2(0.85, 0.55)
@@ -341,6 +343,7 @@ export async function loadSite(
     setNight(v: number) {
       cShader.setUniform('uNight', v);
       fShader.setUniform('uNight', v);
+      hShader.setUniform('uNight', v);
       night = v;
       gShader.setUniform('uNight', v);
       for (const sh of tShaders) sh.setUniform('uNight', v);
@@ -348,6 +351,7 @@ export async function loadSite(
     setTarde(v: number) {
       cShader.setUniform('uTarde', v);
       fShader.setUniform('uTarde', v);
+      hShader.setUniform('uTarde', v);
       tarde = v;
       gShader.setUniform('uTarde', v);
       for (const sh of tShaders) sh.setUniform('uTarde', v);
@@ -359,6 +363,7 @@ export async function loadSite(
       if (opts.skyFill !== undefined) {
         skyFill = opts.skyFill;
         fShader.setUniform('uSkyFill', skyFill);
+        hShader.setUniform('uSkyFill', skyFill);
         for (const sh of tShaders) sh.setUniform('uSkyFill', skyFill);
       }
       if (opts.groundFill !== undefined) {
@@ -367,6 +372,7 @@ export async function loadSite(
       if (opts.hazeAmount !== undefined) {
         hazeAmount = opts.hazeAmount;
         fShader.setUniform('uHazeAmount', hazeAmount);
+        hShader.setUniform('uHazeAmount', hazeAmount);
         gShader.setUniform('uHazeAmount', hazeAmount);
         cShader.setUniform('uHazeAmount', hazeAmount);
         for (const sh of tShaders) sh.setUniform('uHazeAmount', hazeAmount);
@@ -374,6 +380,7 @@ export async function loadSite(
       if (opts.hazeStart !== undefined) {
         hazeStart = opts.hazeStart;
         fShader.setUniform('uHazeStart', hazeStart);
+        hShader.setUniform('uHazeStart', hazeStart);
         gShader.setUniform('uHazeStart', hazeStart);
         cShader.setUniform('uHazeStart', hazeStart);
         for (const sh of tShaders) sh.setUniform('uHazeStart', hazeStart);

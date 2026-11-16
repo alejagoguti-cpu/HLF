@@ -728,3 +728,44 @@ export function groundShader(base: string): Cesium.CustomShader {
     `,
   });
 }
+
+
+/**
+ * Iluminación indirecta (SkyLight) y bañado cálido para fachadas 3D PBR del Hotel.
+ */
+export function hotelPbrShader(): Cesium.CustomShader {
+  return new Cesium.CustomShader({
+    uniforms: {
+      uNight: { type: Cesium.UniformType.FLOAT, value: 0 },
+      uTarde: { type: Cesium.UniformType.FLOAT, value: 0 },
+      uSkyFill: { type: Cesium.UniformType.FLOAT, value: 0.24 },
+      uHazeAmount: { type: Cesium.UniformType.FLOAT, value: 0.08 },
+      uHazeStart: { type: Cesium.UniformType.FLOAT, value: 1200.0 },
+    },
+    varyings: {
+      vPosM: Cesium.VaryingType.VEC3,
+      vUpEC: Cesium.VaryingType.VEC3,
+    },
+    vertexShaderText: `
+      void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput) {
+        vPosM = vsInput.attributes.positionMC;
+        vUpEC = normalize((czm_modelView * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+      }
+    `,
+    fragmentShaderText: HAZE_GLSL + `
+      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+        float dist = length(fsInput.attributes.positionEC);
+        float hz = hlfHaze(dist, uHazeStart, uHazeAmount);
+        vec3 col = material.diffuse;
+        vec3 skyFill = hlfSkyFill(material.normalEC, vUpEC, uNight, uTarde);
+        // Relleno hemisférico para que el ladrillo en sombra conserve su calidez natural
+        vec3 fill = col * skyFill * max(0.46, uSkyFill * 1.8);
+        // Bañado cálido arquitectónico en la base del hotel (acceso y columnas)
+        float wash = smoothstep(8.2, 4.4, vPosM.y) * step(3.8, vPosM.y);
+        vec3 uplight = vec3(1.0, 0.62, 0.28) * col * wash * (0.35 + 0.85 * uNight);
+        material.diffuse = col * mix(1.0, 0.42, uNight) * (1.0 - hz);
+        material.emissive = (material.emissive + fill + uplight) * (1.0 - hz) + hlfHazeColor(uNight, uTarde) * hz;
+      }
+    `,
+  });
+}

@@ -148,7 +148,7 @@ cam.groundHeight = (c) => scene.globe.getHeight(c);
 
 interface LightingPreset { id: string; iso: string; night: number; tarde: number; fog: number; label: string; sun: number; color: string }
 const PRESETS: LightingPreset[] = [
-  { id: 'dia', iso: '2026-06-21T10:10:00-05:00', night: 0, tarde: 0, fog: 0.00018, label: '10:10', sun: 5.75, color: '#ffe3c4' },
+  { id: 'dia', iso: '2026-06-21T10:10:00-05:00', night: 0, tarde: 0, fog: 0.00018, label: '10:10', sun: 4.55, color: '#ffffff' },
   { id: 'tarde', iso: '2026-06-21T16:50:00-05:00', night: 0.04, tarde: 1, fog: 0.00022, label: '16:50', sun: 5.75, color: '#ffe3c4' },
   { id: 'noche', iso: '2026-06-21T19:35:00-05:00', night: 1, tarde: 0, fog: 0.00022, label: '19:35', sun: 0.6, color: '#6b8fd4' },
 ];

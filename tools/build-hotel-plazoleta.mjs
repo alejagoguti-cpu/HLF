@@ -99,6 +99,10 @@ const mats = {
     P: [], N: [], UV: [], I: [], n: 0, hasUV: false,
     def: { name: 'FocoCalido', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [1.0, 0.84, 0.50, 1], metallicFactor: 0.0, roughnessFactor: 0.15 }, emissiveFactor: [1.0, 0.72, 0.34] },
   },
+  vidrioPabellon: {
+    P: [], N: [], UV: [], I: [], n: 0, hasUV: false,
+    def: { name: 'VidrioPabellon', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.11, 0.13, 0.145, 1], metallicFactor: 0.55, roughnessFactor: 0.06 } },
+  },
   vidrioBaranda: {
     P: [], N: [], UV: [], I: [], n: 0, hasUV: false,
     def: { name: 'VidrioBaranda', doubleSided: true, alphaMode: 'BLEND', pbrMetallicRoughness: { baseColorFactor: [0.68, 0.80, 0.88, 0.30], metallicFactor: 0.12, roughnessFactor: 0.10 } },
@@ -377,6 +381,47 @@ for (let i = 0; i < bays; i++) {
   addCylinder('luzCalida', lx, (pn0 + pn1) * 0.5, pzT - 0.24, pzT - 0.18, 0.14, 0.14, 10, 0.5, true);
 }
 
+// PABELLÓN DE VIDRIO (foto real: terraza-restaurante cerrada en vidrio con perfilería negra y plantas adentro)
+{
+  const zb = ZP, zt = pzT - 0.06;
+  // zócalo negro bajo el vidrio
+  addBox('hierro', px0 - 0.1, pn0 - 0.1, zb, px1 + 0.1, pn0 + 0.06, zb + 0.32, 0.4);
+  addBox('hierro', px0 - 0.1, pn1 - 0.06, zb, px1 + 0.1, pn1 + 0.1, zb + 0.32, 0.4);
+  addBox('hierro', px0 - 0.1, pn0, zb, px0 + 0.06, pn1, zb + 0.32, 0.4);
+  addBox('hierro', px1 - 0.06, pn0, zb, px1 + 0.1, pn1, zb + 0.32, 0.4);
+  // paños de vidrio en las cuatro caras
+  addBox('vidrioPabellon', px0, pn0 - 0.03, zb + 0.32, px1, pn0 + 0.02, zt);
+  addBox('vidrioPabellon', px0, pn1 - 0.02, zb + 0.32, px1, pn1 + 0.03, zt);
+  addBox('vidrioPabellon', px0 - 0.03, pn0, zb + 0.32, px0 + 0.02, pn1, zt);
+  addBox('vidrioPabellon', px1 - 0.02, pn0, zb + 0.32, px1 + 0.03, pn1, zt);
+  // techo acristalado sobre la lona
+  addBox('hierro', px0 - 0.15, pn0 - 0.15, pzT + 0.2, px1 + 0.15, pn1 + 0.15, pzT + 0.36, 0.4);
+  // montantes verticales cada ~1,2 m y travesaños horizontales (perfilería negra)
+  const mont = (e0, n0, e1, n1) => {
+    const L = Math.hypot(e1 - e0, n1 - n0), k = Math.max(1, Math.round(L / 1.2));
+    for (let i = 0; i <= k; i++) {
+      const e = e0 + ((e1 - e0) * i) / k, n = n0 + ((n1 - n0) * i) / k;
+      addBox('hierro', e - 0.035, n - 0.035, zb + 0.32, e + 0.035, n + 0.035, zt, 0.4);
+    }
+    for (const z of [zb + 0.32, zb + 2.25, zt - 0.05]) {
+      if (Math.abs(e1 - e0) > Math.abs(n1 - n0)) addBox('hierro', Math.min(e0, e1), n0 - 0.04, z, Math.max(e0, e1), n0 + 0.04, z + 0.06, 0.4);
+      else addBox('hierro', e0 - 0.04, Math.min(n0, n1), z, e0 + 0.04, Math.max(n0, n1), z + 0.06, 0.4);
+    }
+  };
+  mont(px0, pn0, px1, pn0); mont(px0, pn1, px1, pn1); mont(px0, pn0, px0, pn1); mont(px1, pn0, px1, pn1);
+  // plantas en el interior, contra el vidrio y en el centro
+  for (let e = px0 + 0.6; e < px1 - 0.4; e += 0.9) {
+    for (const [n, h] of [[pn0 + 0.55, 0.9], [pn1 - 0.55, 1.1]]) {
+      addBox('materaBeige', e - 0.3, n - 0.25, zb, e + 0.3, n + 0.25, zb + 0.45, 0.5);
+      for (let j = 0; j < 4; j++) addFoliageSprig(e + (j - 1.5) * 0.14, n + ((j % 2) - 0.5) * 0.18, zb + 0.5 + (j % 3) * 0.12 + h * 0.3, 0.3, 0.36, j * 1.3 + e, 0.4);
+    }
+  }
+  for (let e = px0 + 3; e < px1 - 2; e += 4.5) {
+    addCylinder('hierro', e, (pn0 + pn1) / 2, zb, zb + 1.6, 0.05, 0.04, 8, 0.6, false);
+    for (let j = 0; j < 9; j++) addFoliageSprig(e + Math.cos(j * 0.7) * 0.5, (pn0 + pn1) / 2 + Math.sin(j * 0.7) * 0.5, zb + 1.5 + (j % 3) * 0.25, 0.42, 0.46, j * 0.9, 0.5);
+  }
+}
+
 // Fila de materas rectangulares beige PBR con arbustos botánicos orgánicos + baranda de vidrio
 for (let mx = px0; mx < px1 - 0.4; mx += 1.55) {
   addBox('materaBeige', mx + 0.04, pn0 - 0.72, ZP, mx + 1.48, pn0 - 0.14, ZP + 0.62, 0.5);
@@ -444,11 +489,7 @@ for (const [hx, hy] of [[ux - 0.6, uy + 2.4], [-257.5, 263.0]]) {
 }
 
 // 7. BALCÓN IZQUIERDO ESCALONADO (esquina oeste de la fachada principal)
-for (let fl = 1; fl <= 4; fl++) {
-  const bz0 = ZP + fl * 3.05;
-  addBox('ladrillo', -246.2, 276.8, bz0, -241.5, 280.4, bz0 + 1.05, 0.45);
-  addCylinder('luzCalida', -245.15, 277.7, bz0 + 1.06, bz0 + 1.24, 0.18, 0.18, 10, 0.5, true);
-}
+// retirado: ese bloque ahora es el modelo de Revit, que trae sus propios balcones
 
 // Escribir GLB
 const prims = [];

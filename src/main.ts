@@ -346,7 +346,7 @@ function initRevit(): Promise<void> {
 function playRevit(): void {
   if (!site || !revit) return;
   // solo desaparece el bloque que el Revit reemplaza; el resto del hotel queda intacto
-  site.setRevitBlocks(revit.bloques);
+  site.setRevitBlocks(revit.bloques, revit.huella);
   revit.play();
   pisosPanel?.mark(-1);
   pisosPanel?.show(true);

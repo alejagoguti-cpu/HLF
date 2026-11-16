@@ -117,6 +117,44 @@ for (let i = 0; i < 12; i++) {
   console.log(d.nivel.padEnd(9), 'tris', String(I.length / 3).padStart(6), (bytes / 1024).toFixed(0).padStart(5) + ' KB', 'z', zmin.toFixed(1), zmax.toFixed(1));
 }
 manifest.caja = box.map((v) => +v.toFixed(1));
-manifest.bloques = A.bloques ?? []; // este0, norte0, este1, norte1 (muros y losas)
+manifest.bloques = A.bloques ?? [];
+// huella real del Revit (losas, muros y cubiertas de los pisos altos) en franjas de 1 m, agrandada 0,8 m:
+// ahí se recortan los restos del modelo viejo (aleros, placas de balcón)
+{
+  const C = 1.0, occ = new Map();
+  for (let i = 1; i < 12; i++) {
+    const f = `build/revit/nivel_${i}.json`;
+    if (!existsSync(f)) continue;
+    const d = JSON.parse(readFileSync(f, 'utf8'));
+    for (const cat of ['losas', 'muros', 'cubiertas']) {
+      const m = d.cats[cat]; if (!m) continue;
+      for (let t = 0; t < m.T.length; t += 3) {
+        const q = [0, 1, 2].map((k) => [m.V[m.T[t + k] * 3] - A.rx, m.V[m.T[t + k] * 3 + 1] - A.ry]);
+        const e1 = [q[1][0] - q[0][0], q[1][1] - q[0][1]], e2 = [q[2][0] - q[0][0], q[2][1] - q[0][1]];
+        const st = Math.min(200, Math.ceil(Math.max(Math.hypot(...e1), Math.hypot(...e2)) / 0.5));
+        for (let u = 0; u <= st; u++) for (let v = 0; u + v <= st; v++) {
+          const x = q[0][0] + (e1[0] * u + e2[0] * v) / st, y = q[0][1] + (e1[1] * u + e2[1] * v) / st;
+          const gy = Math.floor(y / C), gx = Math.floor(x / C);
+          const r = occ.get(gy) || occ.set(gy, new Set()).get(gy); r.add(gx);
+        }
+      }
+    }
+  }
+  const toENU = (x, y) => { const mx = x * CT - y * ST + A.cx, my = x * ST + y * CT + A.cy; return [+(S * (mx * CA - my * SA)).toFixed(2), +(S * (mx * SA + my * CA)).toFixed(2)]; };
+  const strips = [];
+  for (const gy of [...occ.keys()].sort((p, q) => p - q)) {
+    const xs = [...occ.get(gy)].sort((p, q) => p - q);
+    let s0 = xs[0], prev = xs[0];
+    const push = (x0, x1) => {
+      const last = strips.find((r) => r.x0 === x0 && r.x1 === x1 && r.y1 === gy);
+      if (last) last.y1 = gy + 1; else strips.push({ x0, x1, y0: gy, y1: gy + 1 });
+    };
+    for (const x of xs.slice(1)) { if (x - prev > 2) { push(s0, prev + 1); s0 = x; } prev = x; }
+    push(s0, prev + 1);
+  }
+  const PAD = 0.8;
+  manifest.huella = strips.map((r) => [[r.x0 * C - PAD, r.y0 * C - PAD], [r.x1 * C + PAD, r.y0 * C - PAD], [r.x1 * C + PAD, r.y1 * C + PAD], [r.x0 * C - PAD, r.y1 * C + PAD]].map(([x, y]) => toENU(x, y)));
+  console.log('huella Revit:', manifest.huella.length, 'franjas');
+} // este0, norte0, este1, norte1 (muros y losas)
 writeFileSync('public/secciones/revit.json', JSON.stringify(manifest));
 console.log('caja ENU', manifest.caja, '· materas', totalMaceteros);

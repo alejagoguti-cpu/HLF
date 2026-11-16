@@ -16,7 +16,7 @@ interface Carro {
   vActual: number;
   model: Cesium.Model | null;
   u: number;
-  tipo: 'sedan' | 'suv' | 'taxi';
+  tipo: 'sedan' | 'suv' | 'hatch' | 'taxi' | 'moto' | 'sitp_azul' | 'sitp_amarillo';
 }
 interface Peaton {
   e: number;
@@ -252,8 +252,16 @@ export async function createTrafico(
 
   for (let i = 0; i < total; i++) {
     const r = rnd();
-    const tipo: Carro['tipo'] = r < 0.2 ? 'taxi' : r < 0.48 ? 'suv' : 'sedan';
-    const c: Carro = { e: 0, n: 0, th: 0, v: 6.5 + rnd() * 5.0, vActual: 0, model: null, u: 0, tipo };
+    const tipo: Carro['tipo'] =
+      r < 0.12 ? 'sitp_azul' :
+      r < 0.20 ? 'sitp_amarillo' :
+      r < 0.38 ? 'taxi' :
+      r < 0.54 ? 'moto' :
+      r < 0.68 ? 'hatch' :
+      r < 0.84 ? 'suv' : 'sedan';
+    const isBus = tipo === 'sitp_azul' || tipo === 'sitp_amarillo';
+    const vBase = tipo === 'moto' ? 8.0 + rnd() * 4.5 : isBus ? 5.2 + rnd() * 3.0 : 6.5 + rnd() * 5.0;
+    const c: Carro = { e: 0, n: 0, th: 0, v: vBase, vActual: 0, model: null, u: 0, tipo };
     spawn(c);
     carros.push(c);
   }
@@ -323,20 +331,31 @@ export async function createTrafico(
     obj.model.modelMatrix = Cesium.Matrix4.multiply(matrix, scratchL, new Cesium.Matrix4());
   };
 
-  // Cargar vehículos suaves y personas (con y sin perro)
+  const GLB_MAP: Record<Carro['tipo'], string> = {
+    sedan: 'carro.glb',
+    suv: 'carro_suv.glb',
+    hatch: 'carro_hatch.glb',
+    taxi: 'carro_taxi.glb',
+    moto: 'carro_moto.glb',
+    sitp_azul: 'sitp_azul.glb',
+    sitp_amarillo: 'sitp_amarillo.glb',
+  };
+  const pureLivery = (t: Carro['tipo']) => t === 'taxi' || t === 'sitp_azul' || t === 'sitp_amarillo';
+
+  // Cargar vehículos suaves PBR (SITP azul/amarillo, taxis, motos, carros) y personas
   const ready = (async () => {
     for (let i = 0; i < carros.length; i++) {
       const c = carros[i];
-      const glb = c.tipo === 'taxi' ? 'carro_taxi.glb' : c.tipo === 'suv' ? 'carro_suv.glb' : 'carro.glb';
+      const glb = GLB_MAP[c.tipo];
       try {
         const model = await Cesium.Model.fromGltfAsync({
           url: base + glb,
           upAxis: Cesium.Axis.Y,
           forwardAxis: Cesium.Axis.X,
           shadows: Cesium.ShadowMode.ENABLED,
-          color: c.tipo === 'taxi' ? Cesium.Color.WHITE : Cesium.Color.fromCssColorString(COLORES[i % COLORES.length]),
+          color: pureLivery(c.tipo) ? Cesium.Color.WHITE : Cesium.Color.fromCssColorString(COLORES[i % COLORES.length]),
           colorBlendMode: Cesium.ColorBlendMode.MIX,
-          colorBlendAmount: c.tipo === 'taxi' ? 0 : 0.28,
+          colorBlendAmount: pureLivery(c.tipo) ? 0 : 0.32,
         });
         viewer.scene.primitives.add(model);
         c.model = model;
@@ -371,16 +390,16 @@ export async function createTrafico(
 
     for (let i = 0; i < parqueados.length; i++) {
       const pk = parqueados[i];
-      const glb = pk.tipo === 'taxi' ? 'carro_taxi.glb' : pk.tipo === 'suv' ? 'carro_suv.glb' : 'carro.glb';
+      const glb = GLB_MAP[pk.tipo];
       try {
         const model = await Cesium.Model.fromGltfAsync({
           url: base + glb,
           upAxis: Cesium.Axis.Y,
           forwardAxis: Cesium.Axis.X,
           shadows: Cesium.ShadowMode.ENABLED,
-          color: pk.tipo === 'taxi' ? Cesium.Color.WHITE : Cesium.Color.fromCssColorString(COLORES[(i * 3) % COLORES.length]),
+          color: pureLivery(pk.tipo) ? Cesium.Color.WHITE : Cesium.Color.fromCssColorString(COLORES[(i * 3) % COLORES.length]),
           colorBlendMode: Cesium.ColorBlendMode.MIX,
-          colorBlendAmount: pk.tipo === 'taxi' ? 0 : 0.28,
+          colorBlendAmount: pureLivery(pk.tipo) ? 0 : 0.32,
         });
         viewer.scene.primitives.add(model);
         pk.model = model;
@@ -465,20 +484,26 @@ export async function createTrafico(
         const sinTh = Math.sin(c.th);
         let factorVel = 1.0;
 
-        // 1. Evitar choques con carros adelante
+        // 1. Evitar choques con carros/SITP adelante
+        const esBus = c.tipo === 'sitp_azul' || c.tipo === 'sitp_amarillo';
+        const minFwd = esBus ? 9.5 : 6.4;
+        const maxFwd = esBus ? 16.5 : 12.5;
         for (let j = 0; j < carros.length; j++) {
           if (j === idx || !carros[j].model) continue;
           const o = carros[j];
           const dx = o.e - c.e;
           const dy = o.n - c.n;
           const distSq = dx * dx + dy * dy;
-          if (distSq > 225) continue;
+          if (distSq > 320) continue;
+          const oBus = o.tipo === 'sitp_azul' || o.tipo === 'sitp_amarillo';
+          const stopDist = minFwd + (oBus ? 3.0 : 0);
+          const slowDist = maxFwd + (oBus ? 3.0 : 0);
           const fwd = dx * cosTh + dy * sinTh;
           const lat = Math.abs(-dx * sinTh + dy * cosTh);
-          if (fwd > 0 && fwd < 12.5 && lat < 2.35) {
-            const f = fwd < 6.4 ? 0 : (fwd - 6.4) / 6.1;
+          if (fwd > 0 && fwd < slowDist && lat < 2.45) {
+            const f = fwd < stopDist ? 0 : (fwd - stopDist) / (slowDist - stopDist);
             if (f < factorVel) factorVel = f;
-          } else if (distSq < 22 && j < idx) {
+          } else if (distSq < (esBus || oBus ? 42 : 22) && j < idx) {
             factorVel = 0;
           }
         }
